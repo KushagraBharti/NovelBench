@@ -1,26 +1,181 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* ================================================
+   NOVELBENCH — EDITORIAL DARK
+   Restrained. Typographic. Intentional.
+   ================================================ */
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Backgrounds — warm dark, not cold */
+  --color-bg-deep: #09090B;
+  --color-bg-surface: #111114;
+  --color-bg-elevated: #19191D;
+
+  /* Borders — barely there */
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+  --color-border-active: rgba(255, 255, 255, 0.18);
+
+  /* Text — warm whites, not cold */
+  --color-text-primary: #E8E4DE;
+  --color-text-secondary: #9B9590;
+  --color-text-muted: #5C5752;
+
+  /* Accent — warm vermillion, used SPARINGLY */
+  --color-accent: #D4634A;
+  --color-accent-hover: #C05840;
+  --color-accent-dim: rgba(212, 99, 74, 0.08);
+  --color-accent-subtle: rgba(212, 99, 74, 0.15);
+
+  /* Model tones — muted, sophisticated, not garish */
+  --color-model-gpt: #7B93A8;
+  --color-model-claude: #9B8EB8;
+  --color-model-gemini: #7BA894;
+  --color-model-grok: #B8896B;
+
+  /* Status — desaturated */
+  --color-success: #6BBF7B;
+  --color-warning: #C9A84C;
+  --color-error: #C75050;
+  --color-info: #7B93A8;
+
+  /* Fonts */
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-body: "Figtree", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Courier New", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ================================================
+   BASE
+   ================================================ */
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-bg-deep);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle noise grain — adds depth without being obvious */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.02;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px;
+}
+
+/* Scrollbar — near invisible */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.14); }
+
+::selection {
+  background: var(--color-accent-subtle);
+  color: var(--color-text-primary);
+}
+
+/* ================================================
+   TYPOGRAPHY UTILITIES
+   ================================================ */
+
+.font-display { font-family: var(--font-display); }
+.font-body { font-family: var(--font-body); }
+.font-mono { font-family: var(--font-mono); }
+
+/* Editorial label — small caps, tracked */
+.label {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* Horizontal rule — editorial style */
+.rule {
+  height: 1px;
+  background: var(--color-border);
+  border: none;
+}
+
+/* ================================================
+   KEYFRAMES — only what we actually need
+   ================================================ */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes glitch-1 {
+  0%, 100% { clip-path: inset(0 0 0 0); transform: translate(0); }
+  25% { clip-path: inset(15% 0 65% 0); transform: translate(-3px, 1px); }
+  50% { clip-path: inset(50% 0 20% 0); transform: translate(2px, -1px); }
+  75% { clip-path: inset(70% 0 5% 0); transform: translate(-1px, 2px); }
+}
+
+@keyframes typewriter-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes chevron-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(4px); }
+}
+
+/* ================================================
+   UTILITY CLASSES
+   ================================================ */
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.03) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 2.5s ease-in-out infinite;
+}
+
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

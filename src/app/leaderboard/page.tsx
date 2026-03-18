@@ -2,115 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { LeaderboardData, LeaderboardEntry } from "@/types";
-
-function LeaderboardTable({
-  entries,
-  title,
-  runLabel,
-}: {
-  entries: LeaderboardEntry[];
-  title: string;
-  runLabel?: string;
-}) {
-  if (entries.length === 0) {
-    return (
-      <div className="text-center py-8 text-gray-400 text-sm">
-        No data yet. Run some benchmarks to populate the leaderboard.
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <h3 className="text-lg font-semibold text-foreground mb-3">{title}</h3>
-      {runLabel && (
-        <p className="text-xs text-gray-400 mb-3">
-          Based on {runLabel}
-        </p>
-      )}
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="bg-gray-50">
-              <th className="text-left px-4 py-2 text-sm font-medium text-gray-600">
-                Place
-              </th>
-              <th className="text-left px-4 py-2 text-sm font-medium text-gray-600">
-                Model
-              </th>
-              <th className="text-left px-4 py-2 text-sm font-medium text-gray-600">
-                Wins
-              </th>
-              <th className="text-left px-4 py-2 text-sm font-medium text-gray-600">
-                Win Rate
-              </th>
-              <th className="text-left px-4 py-2 text-sm font-medium text-gray-600">
-                Avg Score
-              </th>
-              <th className="text-left px-4 py-2 text-sm font-medium text-gray-600">
-                Avg Rank
-              </th>
-              <th className="text-left px-4 py-2 text-sm font-medium text-gray-600">
-                Runs
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry, i) => {
-              const winRate =
-                entry.totalRuns > 0
-                  ? ((entry.wins / entry.totalRuns) * 100).toFixed(0)
-                  : "0";
-              const placeLabel =
-                i === 0 ? "1st" : i === 1 ? "2nd" : i === 2 ? "3rd" : `${i + 1}th`;
-
-              return (
-                <tr
-                  key={entry.modelId}
-                  className={`border-t border-gray-200 ${
-                    i === 0
-                      ? "bg-yellow-50"
-                      : i === 1
-                      ? "bg-gray-50/50"
-                      : ""
-                  }`}
-                >
-                  <td className="px-4 py-3 text-sm font-medium">
-                    {placeLabel}
-                  </td>
-                  <td className="px-4 py-3 text-sm font-medium">
-                    {entry.modelName}
-                  </td>
-                  <td className="px-4 py-3 text-sm font-semibold text-green-600">
-                    {entry.wins}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {winRate}%
-                  </td>
-                  <td className="px-4 py-3 text-sm font-semibold text-blue-600">
-                    {entry.averageScore.toFixed(1)}/10
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    {entry.averageRank.toFixed(2)}
-                  </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">
-                    {entry.totalRuns}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
+import { motion } from "framer-motion";
+import { LeaderboardData } from "@/types";
+import RankingsTable from "@/components/leaderboard/RankingsTable";
+import CategoryFilter from "@/components/leaderboard/CategoryFilter";
+import AnimatedNumber from "@/components/ui/AnimatedNumber";
+import { SkeletonCard } from "@/components/ui/Skeleton";
 
 export default function LeaderboardPage() {
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState<string>("all");
+  const [selectedCategory, setSelectedCategory] = useState("all");
 
   useEffect(() => {
     async function load() {
@@ -127,94 +29,123 @@ export default function LeaderboardPage() {
   }, []);
 
   const categoryIds = data ? Object.keys(data.byCategory).sort() : [];
-  const totalRuns = data?.global.reduce((sum, e) => Math.max(sum, e.totalRuns), 0) ?? 0;
+  const totalRuns =
+    data?.global.reduce((sum, e) => Math.max(sum, e.totalRuns), 0) ?? 0;
+  const topModel = data?.global[0];
+
+  function getCategoryRuns(catId: string): number {
+    return data?.byCategory[catId]?.[0]?.totalRuns ?? 0;
+  }
 
   return (
-    <div className="min-h-screen p-8 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-8">
+    <div className="max-w-5xl mx-auto px-6 py-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-10">
         <div>
-          <Link
-            href="/"
-            className="text-sm text-gray-500 hover:text-gray-700 mb-1 inline-block"
+          <motion.h1
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="font-display text-4xl sm:text-5xl text-text-primary"
           >
-            &larr; Back to Home
-          </Link>
-          <h1 className="text-3xl font-bold text-foreground">Leaderboard</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Aggregated rankings across all benchmark runs
-          </p>
+            Rankings
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+            className="text-text-secondary text-base mt-2"
+          >
+            Aggregated performance across all benchmark runs
+          </motion.p>
         </div>
         <Link
-          href="/benchmark"
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+          href="/arena"
+          className="text-base text-text-muted hover:text-accent transition-colors"
         >
-          New Benchmark
+          New Benchmark &rarr;
         </Link>
       </div>
 
       {loading ? (
-        <p className="text-gray-500">Loading leaderboard...</p>
+        <div className="space-y-4">
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
       ) : !data || data.global.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-64 border border-dashed border-gray-300 rounded-lg">
-          <p className="text-gray-400 mb-4">
-            No completed benchmarks yet.
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex flex-col items-center justify-center min-h-[50vh] text-center"
+        >
+          <p className="font-display text-6xl text-text-muted/20 mb-6">&mdash;</p>
+          <h2 className="font-display text-2xl text-text-secondary mb-2">
+            No Rankings Yet
+          </h2>
+          <p className="text-base text-text-muted mb-6 max-w-xs">
+            Run your first benchmark to see how the models stack up.
           </p>
           <Link
-            href="/benchmark"
-            className="text-blue-600 hover:text-blue-700 text-sm"
+            href="/arena"
+            className="text-base text-accent hover:text-accent-hover transition-colors"
           >
-            Run your first benchmark
+            Enter the Arena &rarr;
           </Link>
-        </div>
+        </motion.div>
       ) : (
-        <>
-          {/* Category filter */}
-          <div className="flex gap-2 mb-6 flex-wrap">
-            <button
-              onClick={() => setSelectedCategory("all")}
-              className={`px-3 py-1.5 text-sm rounded-full transition-colors ${
-                selectedCategory === "all"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
-            >
-              All Categories ({totalRuns} runs)
-            </button>
-            {categoryIds.map((catId) => {
-              const catRuns = data.byCategory[catId]?.[0]?.totalRuns ?? 0;
-              return (
-                <button
-                  key={catId}
-                  onClick={() => setSelectedCategory(catId)}
-                  className={`px-3 py-1.5 text-sm rounded-full capitalize transition-colors ${
-                    selectedCategory === catId
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                  }`}
-                >
-                  {catId} ({catRuns})
-                </button>
-              );
-            })}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="space-y-8"
+        >
+          {/* Stats — typographic, no icon cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-border border border-border">
+            {[
+              { label: "Runs", value: totalRuns },
+              { label: "Ideas", value: totalRuns * 4 },
+              { label: "Leader", displayText: topModel?.modelName ?? "—" },
+              { label: "Top Score", value: topModel?.averageScore ?? 0, decimals: 1 },
+            ].map((stat) => (
+              <div key={stat.label} className="bg-bg-deep p-5">
+                <span className="label block mb-2">{stat.label}</span>
+                {"displayText" in stat && stat.displayText ? (
+                  <span className="font-display text-xl text-text-primary">
+                    {stat.displayText}
+                  </span>
+                ) : (
+                  <AnimatedNumber
+                    value={stat.value!}
+                    decimals={stat.decimals ?? 0}
+                    className="font-mono text-2xl text-text-primary"
+                  />
+                )}
+              </div>
+            ))}
           </div>
 
-          {/* Leaderboard table */}
+          {/* Category filter */}
+          <CategoryFilter
+            categories={categoryIds}
+            selected={selectedCategory}
+            onSelect={setSelectedCategory}
+            totalRuns={totalRuns}
+            getCategoryRuns={getCategoryRuns}
+          />
+
+          {/* Rankings table */}
           {selectedCategory === "all" ? (
-            <LeaderboardTable
+            <RankingsTable
               entries={data.global}
               title="Global Leaderboard"
-              runLabel={`${totalRuns} completed benchmark${totalRuns !== 1 ? "s" : ""}`}
+              subtitle={`Based on ${totalRuns} completed benchmark${totalRuns !== 1 ? "s" : ""}`}
             />
           ) : (
-            <LeaderboardTable
+            <RankingsTable
               entries={data.byCategory[selectedCategory] || []}
               title={`${selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)} Leaderboard`}
-              runLabel={`${
-                data.byCategory[selectedCategory]?.[0]?.totalRuns ?? 0
-              } runs in this category`}
+              subtitle={`${getCategoryRuns(selectedCategory)} runs in this category`}
             />
           )}
-        </>
+        </motion.div>
       )}
     </div>
   );

@@ -1,0 +1,89 @@
+"use client";
+
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { Idea } from "@/types";
+import { getModelIdentity } from "@/utils/model-identity";
+import { getCategoryById } from "@/lib/categories";
+
+interface IdeaCardProps {
+  idea: Idea;
+  label?: "Initial" | "Revised";
+  categoryId?: string;
+}
+
+export default function IdeaCard({ idea, label, categoryId }: IdeaCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  const model = getModelIdentity(idea.modelId);
+  const category = categoryId ? getCategoryById(categoryId) : undefined;
+
+  const fields = category
+    ? category.ideaSchema
+        .filter((f) => f.key !== "title" && f.key !== "summary")
+        .map((f) => ({ key: f.key, label: f.label, value: idea.content[f.key] || "" }))
+        .filter((f) => f.value)
+    : Object.entries(idea.content)
+        .filter(([key]) => key !== "title" && key !== "summary")
+        .map(([key, value]) => ({ key, label: key, value: value || "" }))
+        .filter((f) => f.value);
+
+  const visibleFields = expanded ? fields : fields.slice(0, 2);
+  const hasMore = fields.length > 2;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="border-b border-border pb-6 last:border-0"
+    >
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-3">
+        <span
+          className="w-2 h-2 rounded-full flex-shrink-0"
+          style={{ backgroundColor: model.color }}
+        />
+        <span className="text-base font-medium text-text-primary">{model.name}</span>
+        {label && (
+          <span className="font-mono text-base text-text-muted tracking-wide">
+            {label}
+          </span>
+        )}
+      </div>
+
+      {/* Title */}
+      {idea.content.title && (
+        <h4 className="font-display text-xl text-text-primary mb-1">
+          {idea.content.title}
+        </h4>
+      )}
+
+      {/* Summary */}
+      {idea.content.summary && (
+        <p className="text-base text-text-secondary italic leading-relaxed mb-4">
+          {idea.content.summary}
+        </p>
+      )}
+
+      {/* Fields */}
+      <div className="space-y-3">
+        {visibleFields.map((field) => (
+          <div key={field.key}>
+            <span className="label block mb-0.5">{field.label}</span>
+            <p className="text-base text-text-secondary leading-relaxed whitespace-pre-wrap">
+              {field.value}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {hasMore && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-3 text-base text-text-muted hover:text-text-secondary transition-colors"
+        >
+          {expanded ? "Show less" : `+ ${fields.length - 2} more fields`}
+        </button>
+      )}
+    </motion.div>
+  );
+}
