@@ -81,16 +81,6 @@ export const categories: Category[] = [
       "Create a concept for a new type of transportation for dense urban areas",
     ],
   },
-  {
-    id: "anthem",
-    name: "Anthem",
-    description: "Song concepts, music composition ideas, and sonic experiments",
-    examplePrompts: [
-      "Create a concept for a song that blends classical orchestration with electronic beats",
-      "Design a musical piece that evolves based on the time of day",
-      "Pitch an album concept where each track represents a different emotion",
-    ],
-  },
 ];
 
 export function getCategoryById(id: string): Category | undefined {

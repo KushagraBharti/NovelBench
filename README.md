@@ -19,7 +19,6 @@ LLM Creativity Benchmark — have AI models generate ideas, critique each other,
 - **Canvas** — Art directions, game worlds, and album themes
 - **Stage** — Theater, musicals, and live performance concepts
 - **Blueprint** — Inventions and engineering concepts
-- **Anthem** — Song concepts and music composition ideas
 
 ## Setup
 
