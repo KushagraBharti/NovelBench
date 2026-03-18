@@ -93,98 +93,113 @@ function ArenaContent() {
   );
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-8">
-      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-12">
-        <div className="lg:sticky lg:top-24 lg:self-start">
-          <AnimatePresence mode="wait">
-            {!isRunning ? (
-              <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  <CategorySelector selectedId={categoryId} onSelect={setCategoryId} disabled={isRunning} />
-                  <PromptInput
-                    value={prompt}
-                    onChange={setPrompt}
-                    categoryId={categoryId}
-                    disabled={isRunning}
-                    onQuickRun={handleQuickRun}
-                  />
-                  <ModelSelector
-                    selectedModelIds={selectionState.selectedModelIds}
-                    customModelIds={selectionState.customModelIds}
-                    onChange={({ selectedModelIds: nextSelected, customModelIds: nextCustom }) => {
-                      setSelectedModelIds(nextSelected);
-                      setCustomModelIds(nextCustom);
-                    }}
-                    disabled={isRunning}
-                  />
-                  <Button type="submit" size="lg" disabled={!canStart} className="w-full">
-                    Enter the Arena
-                  </Button>
-                </form>
-              </motion.div>
-            ) : (
-              <motion.div key="summary" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="border-l-2 border-border pl-4 space-y-4">
-                <div>
-                  <p className="label mb-2">Running</p>
-                  <p className="text-base text-text-primary capitalize mb-1">{categoryId}</p>
-                  <p className="text-base text-text-muted line-clamp-3">{prompt}</p>
-                </div>
-                <Button type="button" variant="ghost" onClick={() => void cancelBenchmark()}>
-                  Cancel Run
-                </Button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+    <div className="max-w-7xl mx-auto px-6 py-8">
+      <AnimatePresence mode="wait">
+        {!isRunning ? (
+          <motion.div key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <form onSubmit={handleSubmit}>
+              <div className="relative border border-border rounded-xl overflow-hidden">
+                <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-accent/20 to-transparent" />
 
-        <div className="min-w-0 space-y-8">
-          <AnimatePresence mode="wait">
-            {status ? (
-              <motion.div key="arena" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
-                {(isRunning || status === "queued" || status === "awaiting_human_critique") && (
-                  <ArenaRunner status={status} step={step} run={result} />
-                )}
-
-                {status === "awaiting_human_critique" && result && (
-                  <HumanCritiquePanel
-                    run={result}
-                    onSubmit={async (critiques) => {
-                      await submitHumanCritiques(critiques);
-                    }}
-                    onProceed={async () => {
-                      await proceedBenchmark();
-                    }}
-                  />
-                )}
-
-                {hasResults && result && (
-                  <ResultsView run={result} isLive={isRunning} streamingText={streamingText} />
-                )}
-
-                {error && (
-                  <div className="border border-[#C75050]/40 bg-[#C75050]/8 rounded-xl p-4 text-base text-text-secondary">
-                    {error}
+                <div className="grid grid-cols-1 lg:grid-cols-2">
+                  {/* Left: Domain + Prompt */}
+                  <div className="p-6 lg:p-8 space-y-6 border-b lg:border-b-0 lg:border-r border-border">
+                    <CategorySelector selectedId={categoryId} onSelect={setCategoryId} disabled={isRunning} />
+                    <PromptInput
+                      value={prompt}
+                      onChange={setPrompt}
+                      categoryId={categoryId}
+                      disabled={isRunning}
+                      onQuickRun={handleQuickRun}
+                    />
                   </div>
-                )}
-              </motion.div>
-            ) : (
-              <motion.div
-                key="empty"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-col justify-center min-h-[60vh]"
-              >
-                <p className="font-display text-6xl sm:text-8xl text-border leading-none mb-4">
-                  {totalSelectedModels}
-                </p>
-                <p className="text-text-muted text-base max-w-sm">
-                  Build anything from a head-to-head duel to an eight-model battle royale, then optionally add your own critique before revisions begin.
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+
+                  {/* Right: Models */}
+                  <div className="p-6 lg:p-8 flex flex-col min-h-0">
+                    <ModelSelector
+                      selectedModelIds={selectionState.selectedModelIds}
+                      customModelIds={selectionState.customModelIds}
+                      onChange={({ selectedModelIds: nextSelected, customModelIds: nextCustom }) => {
+                        setSelectedModelIds(nextSelected);
+                        setCustomModelIds(nextCustom);
+                      }}
+                      disabled={isRunning}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <Button type="submit" size="lg" disabled={!canStart} className="w-full mt-5">
+                Enter the Arena
+              </Button>
+            </form>
+          </motion.div>
+        ) : (
+          <motion.div
+            key="summary"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex items-start justify-between gap-4 border-l-2 border-accent/30 pl-5 py-1"
+          >
+            <div>
+              <p className="label mb-1">Running</p>
+              <p className="text-base text-text-primary capitalize">{categoryId}</p>
+              <p className="text-sm text-text-muted line-clamp-2 mt-1">{prompt}</p>
+            </div>
+            <Button type="button" variant="ghost" onClick={() => void cancelBenchmark()}>
+              Cancel
+            </Button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="mt-10">
+        <AnimatePresence mode="wait">
+          {status ? (
+            <motion.div key="arena" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+              {(isRunning || status === "queued" || status === "awaiting_human_critique") && (
+                <ArenaRunner status={status} step={step} run={result} />
+              )}
+
+              {status === "awaiting_human_critique" && result && (
+                <HumanCritiquePanel
+                  run={result}
+                  onSubmit={async (critiques) => {
+                    await submitHumanCritiques(critiques);
+                  }}
+                  onProceed={async () => {
+                    await proceedBenchmark();
+                  }}
+                />
+              )}
+
+              {hasResults && result && (
+                <ResultsView run={result} isLive={isRunning} streamingText={streamingText} />
+              )}
+
+              {error && (
+                <div className="border border-[#C75050]/40 bg-[#C75050]/8 rounded-xl p-4 text-base text-text-secondary">
+                  {error}
+                </div>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key="empty"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex flex-col items-center justify-center py-20"
+            >
+              <p className="font-display text-8xl sm:text-[11rem] text-border/50 leading-none mb-4 select-none">
+                {totalSelectedModels}
+              </p>
+              <p className="text-text-muted text-sm max-w-sm text-center leading-relaxed">
+                From a head-to-head duel to an eight-model battle royale — pick your competitors and write a prompt to begin.
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {result && status === "complete" && (
