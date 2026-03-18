@@ -1,25 +1,40 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { BenchmarkRun } from "@/types";
 import { getModelName } from "@/lib/models";
-import { getModelIdentity } from "@/utils/model-identity";
+import { getModelIdentity, modelOrder } from "@/utils/model-identity";
 import Tabs, { TabItem } from "@/components/ui/Tabs";
 import Badge from "@/components/ui/Badge";
 import IdeaCard from "./IdeaCard";
 import CritiqueCard from "./CritiqueCard";
 import RankingDisplay from "./RankingDisplay";
 import IdeaComparison from "./IdeaComparison";
+import StreamingCard from "./StreamingCard";
 
 interface ResultsViewProps {
   run: BenchmarkRun;
   isLive?: boolean;
+  streamingText?: Record<string, string>;
 }
 
-export default function ResultsView({ run, isLive }: ResultsViewProps) {
+export default function ResultsView({ run, isLive, streamingText = {} }: ResultsViewProps) {
   const [activeTab, setActiveTab] = useState("ideas");
   const [critiqueFilter, setCritiqueFilter] = useState<string | null>(null);
+  const prevStatusRef = useRef<string | null>(null);
+
+  // Auto-switch tabs as benchmark progresses
+  useEffect(() => {
+    if (!isLive) return;
+    if (run.status === prevStatusRef.current) return;
+    prevStatusRef.current = run.status;
+
+    if (run.status === "generating") setActiveTab("ideas");
+    else if (run.status === "critiquing") setActiveTab("critiques");
+    else if (run.status === "revising") setActiveTab("revised");
+    else if (run.status === "voting" || run.status === "complete") setActiveTab("final");
+  }, [run.status, isLive]);
 
   const critiqueRankings = useMemo(
     () => run.critiqueVotes.map((cv) => ({ judgeModelId: cv.fromModelId, rankings: cv.rankings })),
@@ -60,7 +75,21 @@ export default function ResultsView({ run, isLive }: ResultsViewProps) {
             {run.ideas.map((idea) => (
               <IdeaCard key={idea.modelId} idea={idea} label="Initial" categoryId={run.categoryId} />
             ))}
-            {run.ideas.length === 0 && <p className="text-text-muted text-base">Waiting for ideas...</p>}
+            {/* Streaming cards for models still generating */}
+            {isLive && run.status === "generating" &&
+              modelOrder
+                .filter((id) => !run.ideas.some((i) => i.modelId === id))
+                .map((modelId) => (
+                  <StreamingCard
+                    key={modelId}
+                    modelId={modelId}
+                    text={streamingText[modelId] ?? ""}
+                    stage="generate"
+                  />
+                ))}
+            {!isLive && run.ideas.length === 0 && (
+              <p className="text-text-muted text-base">No ideas recorded.</p>
+            )}
           </div>
         )}
 
@@ -125,13 +154,29 @@ export default function ResultsView({ run, isLive }: ResultsViewProps) {
 
         {activeTab === "revised" && (
           <div className="space-y-6">
-            {run.revisedIdeas.length > 0 && run.ideas.length > 0
-              ? run.revisedIdeas.map((revised) => {
-                  const original = run.ideas.find((i) => i.modelId === revised.modelId);
-                  if (!original) return <IdeaCard key={revised.modelId} idea={revised} label="Revised" categoryId={run.categoryId} />;
-                  return <IdeaComparison key={revised.modelId} original={original} revised={revised} categoryId={run.categoryId} />;
-                })
-              : <p className="text-text-muted text-base">Waiting for revisions...</p>}
+            {run.revisedIdeas.map((revised) => {
+              const original = run.ideas.find((i) => i.modelId === revised.modelId);
+              if (!original) return <IdeaCard key={revised.modelId} idea={revised} label="Revised" categoryId={run.categoryId} />;
+              return <IdeaComparison key={revised.modelId} original={original} revised={revised} categoryId={run.categoryId} />;
+            })}
+            {/* Streaming cards for models still revising */}
+            {isLive && run.status === "revising" &&
+              run.ideas
+                .filter((idea) => !run.revisedIdeas.some((r) => r.modelId === idea.modelId))
+                .map((idea) => (
+                  <StreamingCard
+                    key={idea.modelId}
+                    modelId={idea.modelId}
+                    text={streamingText[idea.modelId] ?? ""}
+                    stage="revise"
+                  />
+                ))}
+            {run.revisedIdeas.length === 0 && !isLive && (
+              <p className="text-text-muted text-base">No revisions recorded.</p>
+            )}
+            {run.revisedIdeas.length === 0 && isLive && run.status !== "revising" && (
+              <p className="text-text-muted text-base">Waiting for revisions...</p>
+            )}
           </div>
         )}
 

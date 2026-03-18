@@ -9,6 +9,7 @@ interface SSEState {
   step: string;
   result: BenchmarkRun | null;
   error: string | null;
+  streamingText: Record<string, string>; // modelId -> accumulated raw text during streaming
 }
 
 export function useBenchmarkSSE() {
@@ -18,6 +19,7 @@ export function useBenchmarkSSE() {
     step: "",
     result: null,
     error: null,
+    streamingText: {},
   });
   const abortRef = useRef<AbortController | null>(null);
 
@@ -34,6 +36,7 @@ export function useBenchmarkSSE() {
         step: "Starting benchmark...",
         result: null,
         error: null,
+        streamingText: {},
       });
 
       try {
@@ -68,13 +71,27 @@ export function useBenchmarkSSE() {
               if (data === "[DONE]") continue;
 
               try {
-                const progress = JSON.parse(data);
-                setState((prev) => ({
-                  ...prev,
-                  status: progress.status,
-                  step: progress.step || "",
-                  result: progress.run ?? prev.result,
-                }));
+                const event = JSON.parse(data);
+                if (event.type === "token") {
+                  // Token streaming event — append to accumulated text for this model
+                  setState((prev) => ({
+                    ...prev,
+                    streamingText: {
+                      ...prev.streamingText,
+                      [event.modelId]: (prev.streamingText[event.modelId] ?? "") + event.chunk,
+                    },
+                  }));
+                } else {
+                  // Progress event — update status, step, and run state
+                  setState((prev) => ({
+                    ...prev,
+                    status: event.status,
+                    step: event.step || "",
+                    result: event.run ?? prev.result,
+                    // Clear streaming text for this stage when status changes
+                    streamingText: event.status !== prev.status ? {} : prev.streamingText,
+                  }));
+                }
               } catch {
                 // ignore parse errors for incomplete chunks
               }
@@ -104,6 +121,7 @@ export function useBenchmarkSSE() {
       step: "",
       result: null,
       error: null,
+      streamingText: {},
     });
   }, []);
 
@@ -111,6 +129,7 @@ export function useBenchmarkSSE() {
     ...state,
     startBenchmark,
     reset,
+    streamingText: state.streamingText,
     hasResults:
       state.result !== null &&
       (state.result.ideas.length > 0 ||

@@ -8,7 +8,7 @@ import {
   Ranking,
   RankingEntry,
 } from "@/types";
-import { callModel, ChatMessage, ReasoningConfig } from "./openrouter";
+import { callModel, streamModel, ChatMessage, ReasoningConfig } from "./openrouter";
 import { getAllModels, getModelById, getModelName } from "./models";
 import { getCategoryById } from "./categories";
 import {
@@ -207,6 +207,41 @@ async function callModelWithJsonRetry(
   return retryRaw;
 }
 
+/**
+ * Streams a model call, accumulates the text, and validates it.
+ * Falls back to a non-streaming retry if streaming fails or JSON is invalid.
+ * Calls `onChunk` with each token as it arrives.
+ */
+async function streamModelAndCollect(
+  openRouterId: string,
+  messages: ChatMessage[],
+  reasoning: ReasoningConfig,
+  validateFn: (raw: string) => boolean,
+  onChunk?: (chunk: string) => void
+): Promise<string> {
+  let accumulated = "";
+
+  try {
+    for await (const chunk of streamModel(openRouterId, messages, { reasoning, timeoutMs: MODEL_TIMEOUT_MS })) {
+      accumulated += chunk;
+      onChunk?.(chunk);
+    }
+  } catch {
+    // Streaming failed — fall back to non-streaming
+    return callModelWithJsonRetry(openRouterId, messages, reasoning, validateFn);
+  }
+
+  if (validateFn(accumulated)) return accumulated;
+
+  // Streamed response was invalid JSON — retry once non-streaming
+  const retryMessages: ChatMessage[] = [
+    ...messages,
+    { role: "assistant", content: accumulated },
+    { role: "user", content: JSON_RETRY_MESSAGE },
+  ];
+  return callModel(openRouterId, retryMessages, { reasoning, timeoutMs: MODEL_TIMEOUT_MS });
+}
+
 function isValidIdeaJson(raw: string): boolean {
   try {
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
@@ -245,8 +280,10 @@ function isValidFinalVoteJson(raw: string): boolean {
 
 export async function* runBenchmark(
   categoryId: string,
-  prompt: string
+  prompt: string,
+  options?: { onToken?: (modelId: string, stage: string, chunk: string) => void }
 ): AsyncGenerator<BenchmarkProgress> {
+  const { onToken } = options ?? {};
   const category = getCategoryById(categoryId);
   if (!category) throw new Error(`Unknown category: ${categoryId}`);
 
@@ -275,14 +312,15 @@ export async function* runBenchmark(
   let ideaCount = 0;
 
   const ideaPromises = models.map(async (model) => {
-    const raw = await callModelWithJsonRetry(
+    const raw = await streamModelAndCollect(
       model.openRouterId,
       [
         { role: "system", content: generatePrompt.system },
         { role: "user", content: generatePrompt.user },
       ],
       REASONING_GENERATE,
-      isValidIdeaJson
+      isValidIdeaJson,
+      onToken ? (chunk) => onToken(model.id, "generate", chunk) : undefined
     );
     const idea: Idea = {
       modelId: model.id,
@@ -428,14 +466,15 @@ export async function* runBenchmark(
       prompt
     );
 
-    const raw = await callModelWithJsonRetry(
+    const raw = await streamModelAndCollect(
       model.openRouterId,
       [
         { role: "system", content: system },
         { role: "user", content: user },
       ],
       REASONING_REVISE,
-      isValidIdeaJson
+      isValidIdeaJson,
+      onToken ? (chunk) => onToken(idea.modelId, "revise", chunk) : undefined
     );
 
     const revised: Idea = {

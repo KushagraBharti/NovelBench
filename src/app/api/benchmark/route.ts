@@ -18,8 +18,18 @@ export async function POST(request: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
+      const onToken = (modelId: string, stage: string, chunk: string) => {
+        try {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ type: "token", modelId, stage, chunk })}\n\n`)
+          );
+        } catch {
+          // controller may be closed if client disconnected
+        }
+      };
+
       try {
-        for await (const progress of runBenchmark(categoryId, prompt)) {
+        for await (const progress of runBenchmark(categoryId, prompt, { onToken })) {
           const data = JSON.stringify(progress);
           controller.enqueue(encoder.encode(`data: ${data}\n\n`));
         }

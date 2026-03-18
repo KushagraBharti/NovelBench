@@ -1,6 +1,7 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Idea } from "@/types";
 import { getModelIdentity } from "@/utils/model-identity";
 import { getCategoryById } from "@/lib/categories";
@@ -11,9 +12,59 @@ interface IdeaComparisonProps {
   categoryId: string;
 }
 
+function IdeaPanel({
+  idea,
+  label,
+  accentColor,
+  allFields,
+  expanded,
+}: {
+  idea: Idea;
+  label: string;
+  accentColor?: string;
+  allFields: { key: string; label: string }[];
+  expanded: boolean;
+}) {
+  const fields = allFields.filter((f) => f.key !== "title" && f.key !== "summary");
+  const visibleFields = expanded ? fields : fields.slice(0, 2);
+
+  return (
+    <div>
+      <p className="label mb-3" style={accentColor ? { color: accentColor } : undefined}>{label}</p>
+      {idea.content.title && (
+        <h4 className="font-display text-lg text-text-primary mb-1">{idea.content.title}</h4>
+      )}
+      {idea.content.summary && (
+        <p className="text-base text-text-secondary italic mb-3">{idea.content.summary}</p>
+      )}
+      <AnimatePresence initial={false}>
+        {visibleFields.map((field) => {
+          const value = idea.content[field.key];
+          if (!value) return null;
+          return (
+            <motion.div
+              key={field.key}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+              className="mb-2 overflow-hidden"
+            >
+              <span className="label block mb-0.5">{field.label}</span>
+              <p className="text-base text-text-secondary">{value}</p>
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function IdeaComparison({ original, revised, categoryId }: IdeaComparisonProps) {
+  const [expanded, setExpanded] = useState(false);
   const model = getModelIdentity(original.modelId);
   const category = getCategoryById(categoryId);
+  const allFields = category?.ideaSchema ?? [];
 
   return (
     <motion.div
@@ -29,54 +80,23 @@ export default function IdeaComparison({ original, revised, categoryId }: IdeaCo
 
       {/* Side by side */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Original */}
         <div className="opacity-50">
-          <p className="label mb-3">Original</p>
-          {original.content.title && (
-            <h4 className="font-display text-lg text-text-primary mb-1">{original.content.title}</h4>
-          )}
-          {original.content.summary && (
-            <p className="text-base text-text-secondary italic mb-3">{original.content.summary}</p>
-          )}
-          {category?.ideaSchema
-            .filter((f) => f.key !== "title" && f.key !== "summary")
-            .slice(0, 2)
-            .map((field) => {
-              const value = original.content[field.key];
-              if (!value) return null;
-              return (
-                <div key={field.key} className="mb-2">
-                  <span className="label block mb-0.5">{field.label}</span>
-                  <p className="text-base text-text-secondary line-clamp-3">{value}</p>
-                </div>
-              );
-            })}
+          <IdeaPanel idea={original} label="Original" allFields={allFields} expanded={expanded} />
         </div>
-
-        {/* Revised */}
         <div>
-          <p className="label mb-3 text-accent">Revised</p>
-          {revised.content.title && (
-            <h4 className="font-display text-lg text-text-primary mb-1">{revised.content.title}</h4>
-          )}
-          {revised.content.summary && (
-            <p className="text-base text-text-secondary italic mb-3">{revised.content.summary}</p>
-          )}
-          {category?.ideaSchema
-            .filter((f) => f.key !== "title" && f.key !== "summary")
-            .slice(0, 2)
-            .map((field) => {
-              const value = revised.content[field.key];
-              if (!value) return null;
-              return (
-                <div key={field.key} className="mb-2">
-                  <span className="label block mb-0.5">{field.label}</span>
-                  <p className="text-base text-text-secondary line-clamp-3">{value}</p>
-                </div>
-              );
-            })}
+          <IdeaPanel idea={revised} label="Revised" accentColor="var(--color-accent)" allFields={allFields} expanded={expanded} />
         </div>
       </div>
+
+      {/* Expand toggle — only show when there are hidden fields */}
+      {allFields.filter((f) => f.key !== "title" && f.key !== "summary").length > 2 && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-4 text-base text-text-muted hover:text-text-secondary transition-colors"
+        >
+          {expanded ? "↑ Show less" : "↓ Show full plan"}
+        </button>
+      )}
     </motion.div>
   );
 }

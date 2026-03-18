@@ -29,7 +29,7 @@ function ArenaContent() {
   const [showWinner, setShowWinner] = useState(false);
   const prevStatusRef = useRef<string | null>(null);
 
-  const { isRunning, status, step, result, hasResults, startBenchmark } =
+  const { isRunning, status, step, result, hasResults, startBenchmark, streamingText } =
     useBenchmarkSSE();
 
   useEffect(() => {
@@ -118,7 +118,9 @@ function ArenaContent() {
                 className="space-y-8"
               >
                 {isRunning && <ArenaRunner status={status} step={step} run={result} />}
-                {hasResults && result && <ResultsView run={result} isLive={isRunning} />}
+                {hasResults && result && (
+                  <ResultsView run={result} isLive={isRunning} streamingText={streamingText} />
+                )}
               </motion.div>
             ) : (
               <motion.div
