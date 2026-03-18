@@ -2,10 +2,10 @@ import { Model } from "@/types";
 
 export const models: Model[] = [
   {
-    id: "gpt-5-mini",
-    name: "GPT-5 Mini",
+    id: "gpt-5.4-mini",
+    name: "GPT-5.4 Mini",
     provider: "OpenAI",
-    openRouterId: "openai/gpt-5-mini",
+    openRouterId: "openai/gpt-5.4-mini",
   },
   {
     id: "claude-haiku-4.5",
