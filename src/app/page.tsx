@@ -7,7 +7,7 @@ export default function Home() {
     <div className="min-h-screen p-8 max-w-4xl mx-auto">
       <header className="mb-12 text-center">
         <h1 className="text-4xl font-bold text-foreground mb-3">
-          CreateLLM
+          NovelBench
         </h1>
         <p className="text-lg text-gray-600 max-w-2xl mx-auto">
           Benchmark LLM creativity by having models generate ideas, critique

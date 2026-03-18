@@ -36,8 +36,8 @@ export async function callModel(
         headers: {
           Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": "https://createllm.dev",
-          "X-Title": "CreateLLM Creativity Benchmark",
+          "HTTP-Referer": "https://novelbench.dev",
+          "X-Title": "NovelBench Creativity Benchmark",
         },
         body: JSON.stringify({
           model: openRouterId,

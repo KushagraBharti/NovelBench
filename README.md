@@ -1,4 +1,4 @@
-# CreateLLM
+# NovelBench
 
 LLM Creativity Benchmark — have AI models generate ideas, critique each other, revise, and vote to find the most creative LLM.
 
@@ -9,14 +9,17 @@ LLM Creativity Benchmark — have AI models generate ideas, critique each other,
 3. **Revise** — Models improve their ideas based on the critiques they received
 4. **Final Vote (Round 2)** — Models rank the revised ideas for final standings
 
-## Categories
+## Benchmarks
 
-- Business Ideas
-- Research Proposals
-- Creative Writing
-- Product Design
-- Problem Solving
-- Marketing Campaigns
+- **Venture** — Startup concepts and business models
+- **Frontier** — Research proposals and scientific hypotheses
+- **Story** — Creative writing, fiction premises, and narrative concepts
+- **Cinema** — Movie pitches, screenplays, and film loglines
+- **Folio** — Book ideas, novel premises, and plot structures
+- **Canvas** — Art directions, game worlds, and album themes
+- **Stage** — Theater, musicals, and live performance concepts
+- **Blueprint** — Inventions and engineering concepts
+- **Anthem** — Song concepts and music composition ideas
 
 ## Setup
 
