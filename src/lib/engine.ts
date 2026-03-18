@@ -1,8 +1,10 @@
 import {
   BenchmarkRun,
   BenchmarkProgress,
-  Critique,
+  CritiqueEntry,
+  CritiqueVoteResult,
   Idea,
+  IdeaContent,
   Ranking,
   RankingEntry,
 } from "@/types";
@@ -11,61 +13,127 @@ import { getAllModels, getModelById } from "./models";
 import { getCategoryById } from "./categories";
 import {
   buildGeneratePrompt,
-  buildCritiquePrompt,
+  buildCritiqueVotePrompt,
   buildRevisionPrompt,
-  buildVotingPrompt,
+  buildFinalVotePrompt,
 } from "./prompts";
 import { saveBenchmarkRun } from "./storage";
+
+const ANONYMOUS_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
 function generateId(): string {
   return `bench_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function parseCritiqueScore(content: string): number {
-  // Look for patterns like "Score: 7/10" or "**Score:** 8/10" or "[7/10]"
-  const patterns = [
-    /\*?\*?Score:?\*?\*?\s*\[?(\d+)\/10\]?/i,
-    /(\d+)\s*\/\s*10/,
-  ];
-  for (const pattern of patterns) {
-    const match = content.match(pattern);
-    if (match) {
-      const score = parseInt(match[1], 10);
-      if (score >= 1 && score <= 10) return score;
-    }
-  }
-  return 5; // default if parsing fails
+function buildAnonymousMap(modelIds: string[]): Map<string, string> {
+  const map = new Map<string, string>();
+  modelIds.forEach((id, i) => map.set(id, ANONYMOUS_LABELS[i]));
+  return map;
 }
 
-function parseRankings(
-  content: string,
-  modelIds: string[]
-): RankingEntry[] {
+function parseIdeaJson(raw: string): IdeaContent {
   try {
-    // Try to extract JSON from the response
-    const jsonMatch = content.match(/\{[\s\S]*"rankings"[\s\S]*\}/);
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return parsed as IdeaContent;
+    }
+  } catch {
+    // Fall through
+  }
+  // Fallback: treat entire response as description
+  return {
+    title: "Untitled",
+    summary: "",
+    description: raw,
+    novelty: "",
+  };
+}
+
+function parseCritiqueVoteJson(
+  raw: string,
+  anonymousMap: Map<string, string>
+): { critiques: CritiqueEntry[]; rankings: RankingEntry[] } {
+  // Build reverse map: label -> modelId
+  const labelToModel = new Map<string, string>();
+  for (const [modelId, label] of anonymousMap) {
+    labelToModel.set(label, modelId);
+  }
+
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+
+      const critiques: CritiqueEntry[] = (parsed.critiques || []).map(
+        (c: { ideaLabel: string; strengths: string; weaknesses: string; suggestions: string; score: number }) => ({
+          ideaLabel: c.ideaLabel,
+          targetModelId: labelToModel.get(c.ideaLabel) || c.ideaLabel,
+          strengths: c.strengths || "",
+          weaknesses: c.weaknesses || "",
+          suggestions: c.suggestions || "",
+          score: clampScore(c.score),
+        })
+      );
+
+      const rankings: RankingEntry[] = (parsed.rankings || []).map(
+        (r: { label: string; rank: number; score: number; reasoning: string }) => ({
+          modelId: labelToModel.get(r.label) || r.label,
+          rank: r.rank,
+          score: clampScore(r.score),
+          reasoning: r.reasoning || "",
+        })
+      );
+
+      return { critiques, rankings };
+    }
+  } catch {
+    // Fall through
+  }
+
+  return { critiques: [], rankings: [] };
+}
+
+function parseFinalVoteJson(
+  raw: string,
+  anonymousMap: Map<string, string>
+): RankingEntry[] {
+  const labelToModel = new Map<string, string>();
+  for (const [modelId, label] of anonymousMap) {
+    labelToModel.set(label, modelId);
+  }
+
+  try {
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
       if (Array.isArray(parsed.rankings)) {
         return parsed.rankings.map(
-          (r: { modelId: string; rank: number; reasoning: string }) => ({
-            modelId: r.modelId,
+          (r: { label: string; rank: number; score: number; reasoning: string }) => ({
+            modelId: labelToModel.get(r.label) || r.label,
             rank: r.rank,
+            score: clampScore(r.score),
             reasoning: r.reasoning || "",
           })
         );
       }
     }
   } catch {
-    // JSON parsing failed, try manual extraction
+    // Fall through
   }
 
-  // Fallback: return models in order they appear
-  return modelIds.map((id, i) => ({
+  // Fallback
+  return [...anonymousMap.keys()].map((id, i) => ({
     modelId: id,
     rank: i + 1,
+    score: 5,
     reasoning: "Could not parse ranking",
   }));
+}
+
+function clampScore(score: number): number {
+  if (typeof score !== "number" || isNaN(score)) return 5;
+  return Math.max(1, Math.min(10, Math.round(score)));
 }
 
 export async function* runBenchmark(
@@ -84,37 +152,35 @@ export async function* runBenchmark(
     timestamp: new Date().toISOString(),
     status: "generating",
     ideas: [],
-    critiques: [],
-    round1Rankings: [],
+    critiqueVotes: [],
     revisedIdeas: [],
-    round2Rankings: [],
+    finalRankings: [],
   };
 
-  // Save initial state
   await saveBenchmarkRun(run);
 
   // --- Step 1: Generate ideas ---
   run.status = "generating";
   yield { status: "generating", step: "Generating ideas from all models...", run: { ...run } };
 
-  const generatePrompt = buildGeneratePrompt(category.name, prompt);
+  const generatePrompt = buildGeneratePrompt(category, prompt);
   const ideaResults = await Promise.allSettled(
     models.map(async (model) => {
-      const content = await callModel(model.openRouterId, [
-        { role: "user", content: generatePrompt },
+      const raw = await callModel(model.openRouterId, [
+        { role: "system", content: generatePrompt.system },
+        { role: "user", content: generatePrompt.user },
       ]);
       return {
         modelId: model.id,
-        content,
+        content: parseIdeaJson(raw),
+        raw,
         timestamp: new Date().toISOString(),
       } as Idea;
     })
   );
 
   run.ideas = ideaResults
-    .filter(
-      (r): r is PromiseFulfilledResult<Idea> => r.status === "fulfilled"
-    )
+    .filter((r): r is PromiseFulfilledResult<Idea> => r.status === "fulfilled")
     .map((r) => r.value);
 
   await saveBenchmarkRun(run);
@@ -127,74 +193,42 @@ export async function* runBenchmark(
     return;
   }
 
-  // --- Step 2: Critique + Round 1 voting ---
+  // Build anonymous mapping
+  const anonymousMap = buildAnonymousMap(run.ideas.map((i) => i.modelId));
+
+  // --- Step 2: Combined Critique + Vote ---
   run.status = "critiquing";
-  yield { status: "critiquing", step: "Models are critiquing each other's ideas...", run: { ...run } };
+  yield { status: "critiquing", step: "Models are critiquing and ranking each other's ideas...", run: { ...run } };
 
-  // Each model critiques every other model's idea
-  const critiquePromises: Promise<Critique>[] = [];
-  for (const judge of models) {
-    const judgeIdea = run.ideas.find((i) => i.modelId === judge.id);
-    if (!judgeIdea) continue; // skip if this model didn't produce an idea
+  const critiqueVotePromises = run.ideas.map(async (judgeIdea) => {
+    const model = getModelById(judgeIdea.modelId);
+    if (!model) throw new Error(`Model not found: ${judgeIdea.modelId}`);
 
-    for (const idea of run.ideas) {
-      if (idea.modelId === judge.id) continue; // don't critique yourself
+    const { system, user } = buildCritiqueVotePrompt(
+      run.ideas,
+      judgeIdea.modelId,
+      category,
+      prompt,
+      anonymousMap
+    );
 
-      critiquePromises.push(
-        (async () => {
-          const critiqueContent = await callModel(judge.openRouterId, [
-            {
-              role: "user",
-              content: buildCritiquePrompt(idea, category.name, prompt),
-            },
-          ]);
-          return {
-            fromModelId: judge.id,
-            toModelId: idea.modelId,
-            content: critiqueContent,
-            score: parseCritiqueScore(critiqueContent),
-          } as Critique;
-        })()
-      );
-    }
-  }
+    const raw = await callModel(model.openRouterId, [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ]);
 
-  const critiqueResults = await Promise.allSettled(critiquePromises);
-  run.critiques = critiqueResults
-    .filter(
-      (r): r is PromiseFulfilledResult<Critique> => r.status === "fulfilled"
-    )
-    .map((r) => r.value);
+    const { critiques, rankings } = parseCritiqueVoteJson(raw, anonymousMap);
 
-  // Round 1 voting
-  const votingPromises1 = models
-    .filter((m) => run.ideas.some((i) => i.modelId === m.id))
-    .map(async (judge) => {
-      const content = await callModel(judge.openRouterId, [
-        {
-          role: "user",
-          content: buildVotingPrompt(
-            run.ideas,
-            category.name,
-            prompt,
-            "initial"
-          ),
-        },
-      ]);
-      return {
-        judgeModelId: judge.id,
-        rankings: parseRankings(
-          content,
-          run.ideas.map((i) => i.modelId)
-        ),
-      } as Ranking;
-    });
+    return {
+      fromModelId: judgeIdea.modelId,
+      critiques,
+      rankings,
+    } as CritiqueVoteResult;
+  });
 
-  const votingResults1 = await Promise.allSettled(votingPromises1);
-  run.round1Rankings = votingResults1
-    .filter(
-      (r): r is PromiseFulfilledResult<Ranking> => r.status === "fulfilled"
-    )
+  const critiqueVoteResults = await Promise.allSettled(critiqueVotePromises);
+  run.critiqueVotes = critiqueVoteResults
+    .filter((r): r is PromiseFulfilledResult<CritiqueVoteResult> => r.status === "fulfilled")
     .map((r) => r.value);
 
   await saveBenchmarkRun(run);
@@ -207,70 +241,75 @@ export async function* runBenchmark(
     const model = getModelById(idea.modelId);
     if (!model) throw new Error(`Model not found: ${idea.modelId}`);
 
-    const critiquesForIdea = run.critiques.filter(
-      (c) => c.toModelId === idea.modelId
+    // Gather all critiques directed at this model
+    const critiquesForIdea: CritiqueEntry[] = [];
+    for (const cv of run.critiqueVotes) {
+      for (const critique of cv.critiques) {
+        if (critique.targetModelId === idea.modelId) {
+          critiquesForIdea.push(critique);
+        }
+      }
+    }
+
+    const { system, user } = buildRevisionPrompt(
+      idea,
+      critiquesForIdea,
+      category,
+      prompt
     );
 
-    const content = await callModel(model.openRouterId, [
-      {
-        role: "user",
-        content: buildRevisionPrompt(
-          idea,
-          critiquesForIdea,
-          category.name,
-          prompt
-        ),
-      },
+    const raw = await callModel(model.openRouterId, [
+      { role: "system", content: system },
+      { role: "user", content: user },
     ]);
 
     return {
       modelId: idea.modelId,
-      content,
+      content: parseIdeaJson(raw),
+      raw,
       timestamp: new Date().toISOString(),
     } as Idea;
   });
 
   const revisionResults = await Promise.allSettled(revisionPromises);
   run.revisedIdeas = revisionResults
-    .filter(
-      (r): r is PromiseFulfilledResult<Idea> => r.status === "fulfilled"
-    )
+    .filter((r): r is PromiseFulfilledResult<Idea> => r.status === "fulfilled")
     .map((r) => r.value);
 
   await saveBenchmarkRun(run);
 
-  // --- Step 4: Round 2 voting ---
+  // --- Step 4: Final Voting ---
   run.status = "voting";
   yield { status: "voting", step: "Final round of voting on revised ideas...", run: { ...run } };
 
-  const votingPromises2 = models
-    .filter((m) => run.revisedIdeas.some((i) => i.modelId === m.id))
-    .map(async (judge) => {
-      const content = await callModel(judge.openRouterId, [
-        {
-          role: "user",
-          content: buildVotingPrompt(
-            run.revisedIdeas,
-            category.name,
-            prompt,
-            "revised"
-          ),
-        },
-      ]);
-      return {
-        judgeModelId: judge.id,
-        rankings: parseRankings(
-          content,
-          run.revisedIdeas.map((i) => i.modelId)
-        ),
-      } as Ranking;
-    });
+  // Re-map for revised ideas (same models, same labels for consistency)
+  const revisedAnonymousMap = buildAnonymousMap(run.revisedIdeas.map((i) => i.modelId));
 
-  const votingResults2 = await Promise.allSettled(votingPromises2);
-  run.round2Rankings = votingResults2
-    .filter(
-      (r): r is PromiseFulfilledResult<Ranking> => r.status === "fulfilled"
-    )
+  const finalVotePromises = run.revisedIdeas.map(async (judgeIdea) => {
+    const model = getModelById(judgeIdea.modelId);
+    if (!model) throw new Error(`Model not found: ${judgeIdea.modelId}`);
+
+    const { system, user } = buildFinalVotePrompt(
+      run.revisedIdeas,
+      category,
+      prompt,
+      revisedAnonymousMap
+    );
+
+    const raw = await callModel(model.openRouterId, [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ]);
+
+    return {
+      judgeModelId: judgeIdea.modelId,
+      rankings: parseFinalVoteJson(raw, revisedAnonymousMap),
+    } as Ranking;
+  });
+
+  const finalVoteResults = await Promise.allSettled(finalVotePromises);
+  run.finalRankings = finalVoteResults
+    .filter((r): r is PromiseFulfilledResult<Ranking> => r.status === "fulfilled")
     .map((r) => r.value);
 
   // --- Done ---

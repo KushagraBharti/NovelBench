@@ -10,24 +10,53 @@ export interface Category {
   name: string;
   description: string;
   examplePrompts: string[];
+  systemPrompt: string;
+  evaluationCriteria: string[];
+  ideaSchema: IdeaFieldSpec[];
+}
+
+export interface IdeaFieldSpec {
+  key: string;
+  label: string;
+  description: string;
+}
+
+// --- Structured JSON responses from models ---
+
+export interface IdeaContent {
+  title: string;
+  summary: string;
+  description: string;
+  novelty: string;
+  [key: string]: string; // category-specific extra fields
 }
 
 export interface Idea {
   modelId: string;
-  content: string;
+  content: IdeaContent;
+  raw: string; // raw LLM response for debugging
   timestamp: string;
 }
 
-export interface Critique {
-  fromModelId: string;
-  toModelId: string;
-  content: string;
+export interface CritiqueEntry {
+  ideaLabel: string; // "A", "B", "C", etc.
+  targetModelId: string;
+  strengths: string;
+  weaknesses: string;
+  suggestions: string;
   score: number; // 1-10
+}
+
+export interface CritiqueVoteResult {
+  fromModelId: string;
+  critiques: CritiqueEntry[];
+  rankings: RankingEntry[];
 }
 
 export interface RankingEntry {
   modelId: string;
   rank: number;
+  score: number; // 1-10 rating
   reasoning: string;
 }
 
@@ -52,10 +81,9 @@ export interface BenchmarkRun {
   status: BenchmarkStatus;
   error?: string;
   ideas: Idea[];
-  critiques: Critique[];
-  round1Rankings: Ranking[];
+  critiqueVotes: CritiqueVoteResult[];
   revisedIdeas: Idea[];
-  round2Rankings: Ranking[];
+  finalRankings: Ranking[];
 }
 
 export interface BenchmarkProgress {
@@ -68,6 +96,6 @@ export interface AggregatedScore {
   modelId: string;
   modelName: string;
   averageRank: number;
-  totalScore: number;
+  averageScore: number;
   critiqueScoreAvg: number;
 }

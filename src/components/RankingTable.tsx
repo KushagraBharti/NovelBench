@@ -11,16 +11,18 @@ interface RankingTableProps {
 function aggregateRankings(rankings: Ranking[]): AggregatedScore[] {
   const scoreMap = new Map<
     string,
-    { totalRank: number; count: number }
+    { totalRank: number; totalScore: number; count: number }
   >();
 
   for (const ranking of rankings) {
     for (const entry of ranking.rankings) {
       const existing = scoreMap.get(entry.modelId) || {
         totalRank: 0,
+        totalScore: 0,
         count: 0,
       };
       existing.totalRank += entry.rank;
+      existing.totalScore += entry.score;
       existing.count += 1;
       scoreMap.set(entry.modelId, existing);
     }
@@ -32,12 +34,11 @@ function aggregateRankings(rankings: Ranking[]): AggregatedScore[] {
       modelId,
       modelName: getModelName(modelId),
       averageRank: data.count > 0 ? data.totalRank / data.count : 0,
-      totalScore: 0,
+      averageScore: data.count > 0 ? data.totalScore / data.count : 0,
       critiqueScoreAvg: 0,
     });
   }
 
-  // Sort by average rank (lower is better)
   scores.sort((a, b) => a.averageRank - b.averageRank);
 
   return scores;
@@ -64,6 +65,9 @@ export default function RankingTable({ rankings, title }: RankingTableProps) {
               <th className="text-left px-4 py-2 text-sm font-medium text-gray-600">
                 Avg Rank
               </th>
+              <th className="text-left px-4 py-2 text-sm font-medium text-gray-600">
+                Avg Score
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -82,6 +86,9 @@ export default function RankingTable({ rankings, title }: RankingTableProps) {
                 </td>
                 <td className="px-4 py-3 text-sm">
                   {score.averageRank.toFixed(2)}
+                </td>
+                <td className="px-4 py-3 text-sm font-semibold text-blue-600">
+                  {score.averageScore.toFixed(1)}/10
                 </td>
               </tr>
             ))}
@@ -109,6 +116,7 @@ export default function RankingTable({ rankings, title }: RankingTableProps) {
                   .map((entry) => (
                     <li key={entry.modelId} className="text-gray-600">
                       {getModelName(entry.modelId)}
+                      <span className="text-blue-600 ml-1">({entry.score}/10)</span>
                       {entry.reasoning && (
                         <span className="text-gray-400">
                           {" "}

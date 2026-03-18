@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { BenchmarkRun } from "@/types";
-import { getCategoryById } from "@/lib/categories";
+import { getModelName } from "@/lib/models";
 import IdeaCard from "./IdeaCard";
 import CritiqueCard from "./CritiqueCard";
 import RankingTable from "./RankingTable";
@@ -11,29 +11,30 @@ interface ResultsViewProps {
   run: BenchmarkRun;
 }
 
-type Tab = "ideas" | "critiques" | "round1" | "revised" | "round2";
+type Tab = "ideas" | "critiques" | "rankings" | "revised" | "final";
 
 export default function ResultsView({ run }: ResultsViewProps) {
   const [activeTab, setActiveTab] = useState<Tab>("ideas");
-  const category = getCategoryById(run.categoryId);
+
+  // Build critique+vote rankings as Ranking[] for the table
+  const critiqueRankings = run.critiqueVotes.map((cv) => ({
+    judgeModelId: cv.fromModelId,
+    rankings: cv.rankings,
+  }));
 
   const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: "ideas", label: "Initial Ideas", count: run.ideas.length },
-    { id: "critiques", label: "Critiques", count: run.critiques.length },
-    { id: "round1", label: "Round 1 Rankings" },
-    {
-      id: "revised",
-      label: "Revised Ideas",
-      count: run.revisedIdeas.length,
-    },
-    { id: "round2", label: "Round 2 Rankings" },
+    { id: "critiques", label: "Critiques", count: run.critiqueVotes.length },
+    { id: "rankings", label: "Round 1 Rankings" },
+    { id: "revised", label: "Revised Ideas", count: run.revisedIdeas.length },
+    { id: "final", label: "Final Rankings" },
   ];
 
   return (
     <div>
       <div className="mb-6">
         <h2 className="text-xl font-bold text-foreground">
-          {category?.name ?? run.categoryId}
+          {run.categoryId}
         </h2>
         <p className="text-gray-600 mt-1">{run.prompt}</p>
         <p className="text-xs text-gray-400 mt-1">
@@ -66,7 +67,7 @@ export default function ResultsView({ run }: ResultsViewProps) {
         {activeTab === "ideas" && (
           <div className="space-y-4">
             {run.ideas.map((idea) => (
-              <IdeaCard key={idea.modelId} idea={idea} label="Initial" />
+              <IdeaCard key={idea.modelId} idea={idea} label="Initial" categoryId={run.categoryId} />
             ))}
             {run.ideas.length === 0 && (
               <p className="text-gray-500 text-sm">No ideas generated yet.</p>
@@ -75,38 +76,44 @@ export default function ResultsView({ run }: ResultsViewProps) {
         )}
 
         {activeTab === "critiques" && (
-          <div className="space-y-4">
+          <div className="space-y-6">
             {run.ideas.map((idea) => {
-              const critiquesForIdea = run.critiques.filter(
-                (c) => c.toModelId === idea.modelId
-              );
+              // Gather all critiques targeting this model
+              const critiquesForIdea: { critique: typeof run.critiqueVotes[0]["critiques"][0]; fromModelId: string }[] = [];
+              for (const cv of run.critiqueVotes) {
+                for (const c of cv.critiques) {
+                  if (c.targetModelId === idea.modelId) {
+                    critiquesForIdea.push({ critique: c, fromModelId: cv.fromModelId });
+                  }
+                }
+              }
               if (critiquesForIdea.length === 0) return null;
               return (
                 <div key={idea.modelId}>
                   <h4 className="text-sm font-semibold text-gray-600 mb-2">
-                    Critiques for{" "}
-                    {idea.modelId}
+                    Critiques for {getModelName(idea.modelId)}
                   </h4>
                   <div className="space-y-3 ml-4">
-                    {critiquesForIdea.map((critique) => (
+                    {critiquesForIdea.map(({ critique, fromModelId }) => (
                       <CritiqueCard
-                        key={`${critique.fromModelId}-${critique.toModelId}`}
+                        key={`${fromModelId}-${critique.targetModelId}`}
                         critique={critique}
+                        fromModelId={fromModelId}
                       />
                     ))}
                   </div>
                 </div>
               );
             })}
-            {run.critiques.length === 0 && (
+            {run.critiqueVotes.length === 0 && (
               <p className="text-gray-500 text-sm">No critiques yet.</p>
             )}
           </div>
         )}
 
-        {activeTab === "round1" && (
+        {activeTab === "rankings" && (
           <RankingTable
-            rankings={run.round1Rankings}
+            rankings={critiqueRankings}
             title="Round 1 Rankings (Initial Ideas)"
           />
         )}
@@ -114,20 +121,18 @@ export default function ResultsView({ run }: ResultsViewProps) {
         {activeTab === "revised" && (
           <div className="space-y-4">
             {run.revisedIdeas.map((idea) => (
-              <IdeaCard key={idea.modelId} idea={idea} label="Revised" />
+              <IdeaCard key={idea.modelId} idea={idea} label="Revised" categoryId={run.categoryId} />
             ))}
             {run.revisedIdeas.length === 0 && (
-              <p className="text-gray-500 text-sm">
-                No revised ideas yet.
-              </p>
+              <p className="text-gray-500 text-sm">No revised ideas yet.</p>
             )}
           </div>
         )}
 
-        {activeTab === "round2" && (
+        {activeTab === "final" && (
           <RankingTable
-            rankings={run.round2Rankings}
-            title="Round 2 Rankings (Revised Ideas)"
+            rankings={run.finalRankings}
+            title="Final Rankings (Revised Ideas)"
           />
         )}
       </div>
