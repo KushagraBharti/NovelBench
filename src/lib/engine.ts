@@ -27,15 +27,22 @@ import {
 import { getOpenRouterCircuitBreaker } from "./circuit-breaker";
 import { getRunEventBus } from "./run-events";
 import { inCompletionOrder } from "./async";
+import {
+  isUsableIdeaResponse,
+  normalizeCritiqueVoteResponse,
+  normalizeFinalVoteResponse,
+  normalizeIdeaContent,
+} from "./structured-output";
+import {
+  JSON_RETRY_MESSAGE,
+  MODEL_TIMEOUT_MS,
+  REASONING_CRITIQUE,
+  REASONING_GENERATE,
+  REASONING_REVISE,
+  REASONING_VOTE,
+} from "./prompt-runtime";
 
 const ANONYMOUS_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H"];
-const REASONING_GENERATE: ReasoningConfig = { effort: "medium", exclude: true };
-const REASONING_CRITIQUE: ReasoningConfig = { effort: "low", exclude: true };
-const REASONING_REVISE: ReasoningConfig = { effort: "medium", exclude: true };
-const REASONING_VOTE: ReasoningConfig = { effort: "low", exclude: true };
-const MODEL_TIMEOUT_MS = 90_000;
-const JSON_RETRY_MESSAGE =
-  "Your response was not valid JSON. Please respond with ONLY valid JSON in the exact format specified above. No markdown, no explanation - just the JSON object.";
 
 interface JsonRetryOptions {
   retryOnInvalidJson?: boolean;
@@ -87,92 +94,20 @@ function shuffleArray<T>(arr: T[], seed: string): T[] {
   return copy;
 }
 
-function parseIdeaJson(raw: string): IdeaContent {
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (parsed.title && parsed.title !== "Untitled") {
-        return parsed as IdeaContent;
-      }
-    }
-  } catch {
-    // Fall through.
-  }
-
-  return {
-    title: "Untitled",
-    summary: "",
-    description: raw,
-    novelty: "",
-  };
+function parseIdeaJson(raw: string, category = getCategoryById("venture")): IdeaContent {
+  return normalizeIdeaContent(raw, category);
 }
 
 function parseCritiqueVoteJson(
   raw: string,
   anonymousMap: Map<string, string>
 ): { critiques: CritiqueEntry[]; rankings: RankingEntry[] } {
-  const labelToModel = new Map<string, string>();
-  for (const [modelId, label] of anonymousMap) {
-    labelToModel.set(label, modelId);
-  }
-
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      const critiques: CritiqueEntry[] = (parsed.critiques || []).map(
-        (entry: { ideaLabel: string; strengths: string; weaknesses: string; suggestions: string; score: number }) => ({
-          ideaLabel: entry.ideaLabel,
-          targetModelId: labelToModel.get(entry.ideaLabel) || entry.ideaLabel,
-          strengths: entry.strengths || "",
-          weaknesses: entry.weaknesses || "",
-          suggestions: entry.suggestions || "",
-          score: clampScore(entry.score),
-        })
-      );
-      const rankings: RankingEntry[] = (parsed.rankings || []).map(
-        (entry: { label: string; rank: number; score: number; reasoning: string }) => ({
-          modelId: labelToModel.get(entry.label) || entry.label,
-          rank: entry.rank,
-          score: clampScore(entry.score),
-          reasoning: entry.reasoning || "",
-        })
-      );
-
-      return { critiques, rankings };
-    }
-  } catch {
-    // Fall through.
-  }
-
-  return { critiques: [], rankings: [] };
+  return normalizeCritiqueVoteResponse(raw, anonymousMap);
 }
 
 function parseFinalVoteJson(raw: string, anonymousMap: Map<string, string>): RankingEntry[] {
-  const labelToModel = new Map<string, string>();
-  for (const [modelId, label] of anonymousMap) {
-    labelToModel.set(label, modelId);
-  }
-
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      if (Array.isArray(parsed.rankings) && parsed.rankings.length > 0) {
-        return parsed.rankings.map(
-          (entry: { label: string; rank: number; score: number; reasoning: string }) => ({
-            modelId: labelToModel.get(entry.label) || entry.label,
-            rank: entry.rank,
-            score: clampScore(entry.score),
-            reasoning: entry.reasoning || "",
-          })
-        );
-      }
-    }
-  } catch {
-    // Fall through.
-  }
+  const parsed = normalizeFinalVoteResponse(raw, anonymousMap);
+  if (parsed.length > 0) return parsed.map((entry) => ({ ...entry, score: clampScore(entry.score) }));
 
   return [...anonymousMap.keys()].map((modelId, index) => ({
     modelId,
@@ -188,16 +123,7 @@ function clampScore(score: number): number {
 }
 
 function isValidIdeaJson(raw: string): boolean {
-  try {
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-      return Boolean(parsed.title && parsed.title !== "Untitled");
-    }
-  } catch {
-    // Ignore.
-  }
-  return false;
+  return isUsableIdeaResponse(raw);
 }
 
 function isValidCritiqueVoteJson(raw: string): boolean {
@@ -441,7 +367,7 @@ async function runGenerateStage(
       );
       const idea: Idea = {
         modelId: model.id,
-        content: parseIdeaJson(raw),
+        content: parseIdeaJson(raw, category),
         raw,
         timestamp: new Date().toISOString(),
       };
@@ -684,7 +610,7 @@ async function runRevisionStage(
         modelId: idea.modelId,
         idea: {
           modelId: idea.modelId,
-          content: parseIdeaJson(raw),
+          content: parseIdeaJson(raw, category),
           raw,
           timestamp: new Date().toISOString(),
         } as Idea,

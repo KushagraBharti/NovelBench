@@ -1,4 +1,5 @@
 import { Category, CritiqueEntry, Idea, IdeaContent } from "@/types";
+import { benchmarkPromptCopy } from "./prompt-copy";
 
 // --- Helper to build the JSON schema instruction for idea generation ---
 
@@ -15,10 +16,11 @@ ${fields.join(",\n")}
 
 export function buildGeneratePrompt(category: Category, userPrompt: string): { system: string; user: string } {
   const jsonShape = buildIdeaJsonInstruction(category);
+  const copy = benchmarkPromptCopy.generate;
 
   const system = `${category.systemPrompt}
 
-You are participating in a creativity benchmark. Your goal is to produce the most creative, novel, and well-thought-out response possible.
+${copy.systemIntro}
 
 Evaluation criteria for this category:
 ${category.evaluationCriteria.map((c) => `- ${c}`).join("\n")}`;
@@ -27,13 +29,9 @@ ${category.evaluationCriteria.map((c) => `- ${c}`).join("\n")}`;
 Prompt: ${userPrompt}
 
 Instructions:
-- Be as creative and original as possible
-- Think outside the box and propose truly unique ideas
-- Be specific and detailed, not vague or generic
-- Aim for genuine novelty — avoid cliché or obvious approaches
-- Every field should be substantive, not filler
+${copy.instructions.map((line) => `- ${line}`).join("\n")}
 
-Respond with ONLY valid JSON in this exact format (no other text):
+${copy.outputLeadIn}
 ${jsonShape}`;
 
   return { system, user };
@@ -89,35 +87,33 @@ ${formatIdeaContent(idea.content, category)}
     })
     .join(",\n");
 
+  const copy = benchmarkPromptCopy.critique;
+
   const system = `${category.systemPrompt}
 
-You are an expert judge in a creativity benchmark. You must critique ideas from anonymous models and provide honest, well-calibrated evaluations.
+${copy.systemIntro}
 
 Evaluation criteria for this category:
 ${category.evaluationCriteria.map((c) => `- ${c}`).join("\n")}
 
 IMPORTANT — Scoring guidelines:
-- Use the FULL 1-10 scale. Do not cluster scores in the 6-8 range.
-- A score of 1-3 means the idea is generic, obvious, or poorly conceived.
-- A score of 4-5 means it's competent but unremarkable — nothing you haven't seen before.
-- A score of 6-7 means it's genuinely good with real creative merit.
-- A score of 8-9 means it's exceptional — surprising, well-crafted, and memorable.
-- A score of 10 is reserved for ideas that are truly brilliant and unlike anything you've seen.
-- Be honest and decisive. If an idea is mediocre, say so. If it's great, say so. Don't hedge.
-- Differentiate clearly between ideas. If one is significantly better, the scores should reflect that gap.`;
+${copy.scoringGuidelines.map((line) => `- ${line}`).join("\n")}`;
 
   const user = `Category: ${category.name}
 Original Prompt: ${originalPrompt}
 
-You are reviewing ideas from anonymous models. You do NOT know which model produced which idea. Judge purely on merit.
+${copy.reviewerIntro}
 
 ${ideasText}
 
 YOUR TASK:
-1. Critique each of the ideas above (not your own).
+1. ${copy.taskLines[0]}
 2. Rank ALL ideas (${allIdeasList}) — including your own (you are Anonymous Model ${anonymousMap.get(judgeModelId)}) — from best to worst.
 
-Respond with ONLY valid JSON in this exact format (no other text):
+Rules:
+${copy.rules.map((line) => `- ${line}`).join("\n")}
+
+${copy.outputLeadIn}
 {
   "critiques": [
 ${critiqueJsonFields}
@@ -139,6 +135,7 @@ export function buildRevisionPrompt(
   originalPrompt: string
 ): { system: string; user: string } {
   const jsonShape = buildIdeaJsonInstruction(category);
+  const copy = benchmarkPromptCopy.revise;
 
   const critiqueText = critiques
     .map(
@@ -152,7 +149,7 @@ Suggestions: ${c.suggestions}`
 
   const system = `${category.systemPrompt}
 
-You are participating in a creativity benchmark. You previously submitted an idea that received anonymous critiques. Your task is to revise and significantly improve your idea based on the feedback.
+${copy.systemIntro}
 
 Evaluation criteria for this category:
 ${category.evaluationCriteria.map((c) => `- ${c}`).join("\n")}`;
@@ -169,14 +166,9 @@ ${critiqueText}
 --- END CRITIQUES ---
 
 Instructions:
-- Carefully consider all feedback
-- Address the weaknesses identified
-- Incorporate the best suggestions
-- Maintain your original creative vision while meaningfully improving
-- Make the revised idea significantly more creative and novel
-- Every field should be substantive and reflect the improvements
+${copy.instructions.map((line) => `- ${line}`).join("\n")}
 
-Respond with ONLY valid JSON in this exact format (no other text):
+${copy.outputLeadIn}
 ${jsonShape}`;
 
   return { system, user };
@@ -190,6 +182,7 @@ export function buildFinalVotePrompt(
   originalPrompt: string,
   anonymousMap: Map<string, string>
 ): { system: string; user: string } {
+  const copy = benchmarkPromptCopy.finalVote;
   const ideasText = ideas
     .map((idea) => {
       const label = anonymousMap.get(idea.modelId)!;
@@ -208,30 +201,27 @@ ${formatIdeaContent(idea.content, category)}
 
   const system = `${category.systemPrompt}
 
-You are an expert judge in the final round of a creativity benchmark. These are revised ideas — they have already been critiqued and improved. Hold them to a higher standard.
+${copy.systemIntro}
 
 Evaluation criteria for this category:
 ${category.evaluationCriteria.map((c) => `- ${c}`).join("\n")}
 
 IMPORTANT — Scoring guidelines:
-- Use the FULL 1-10 scale. Do not cluster scores in the 6-8 range.
-- A score of 1-3 means the idea is generic, obvious, or poorly conceived.
-- A score of 4-5 means it's competent but unremarkable.
-- A score of 6-7 means it's genuinely good with real creative merit.
-- A score of 8-9 means it's exceptional — surprising, well-crafted, and memorable.
-- A score of 10 is reserved for truly brilliant ideas unlike anything you've seen.
-- Be honest and decisive. Differentiate clearly between ideas.`;
+${copy.scoringGuidelines.map((line) => `- ${line}`).join("\n")}`;
 
   const user = `Category: ${category.name}
 Original Prompt: ${originalPrompt}
 
-These are REVISED ideas from anonymous models. Judge purely on merit.
+${copy.reviewerIntro}
 
 ${ideasText}
 
 Rank ALL ${ideas.length} ideas from 1 (best) to ${ideas.length} (worst). Rate each 1-10.
 
-Respond with ONLY valid JSON in this exact format (no other text):
+Rules:
+${copy.rules.map((line) => `- ${line}`).join("\n")}
+
+${copy.outputLeadIn}
 {
   "rankings": [
 ${rankingJsonFields}

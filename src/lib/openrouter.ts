@@ -37,6 +37,28 @@ export interface CallModelOptions {
 
 const DEFAULT_TIMEOUT_MS = 90_000;
 
+export function buildChatCompletionBody(
+  openRouterId: string,
+  messages: ChatMessage[],
+  options: Pick<CallModelOptions, "reasoning"> & { stream?: boolean }
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model: openRouterId,
+    messages,
+    temperature: 0.8,
+  };
+
+  if (options.stream) {
+    body.stream = true;
+  }
+
+  if (options.reasoning) {
+    body.reasoning = options.reasoning;
+  }
+
+  return body;
+}
+
 function timeoutSignal(ms: number, signal?: AbortSignal): AbortSignal {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error(`Timeout after ${ms}ms`)), ms);
@@ -114,17 +136,7 @@ export async function callModel(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const body: Record<string, unknown> = {
-        model: openRouterId,
-        messages,
-        max_tokens: 4096,
-        temperature: 0.8,
-      };
-
-      if (reasoning) {
-        body.reasoning = reasoning;
-      }
-
+      const body = buildChatCompletionBody(openRouterId, messages, { reasoning });
       const response = await requestOpenRouter(body, timeoutMs, signal);
       const data: OpenRouterResponse = await response.json();
 
@@ -156,15 +168,7 @@ export async function* streamModel(
   options: CallModelOptions = {}
 ): AsyncGenerator<string> {
   const { reasoning, timeoutMs = DEFAULT_TIMEOUT_MS, signal } = options;
-  const body: Record<string, unknown> = {
-    model: openRouterId,
-    messages,
-    max_tokens: 4096,
-    temperature: 0.8,
-    stream: true,
-  };
-
-  if (reasoning) body.reasoning = reasoning;
+  const body = buildChatCompletionBody(openRouterId, messages, { reasoning, stream: true });
 
   const response = await requestOpenRouter(body, timeoutMs, signal);
   const reader = response.body?.getReader();
