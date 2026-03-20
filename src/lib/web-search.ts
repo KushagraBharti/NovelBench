@@ -191,8 +191,9 @@ export function sourceRecordFromResult(
   query: string,
   result: SearchWebResultItem
 ): RetrievedSourceRecord {
+  const retrievedAt = new Date().toISOString();
   return {
-    id: `${runId}_${stage}_${modelId}_${Buffer.from(result.url).toString("base64url").slice(0, 16)}`,
+    id: `${runId}_${stage}_${modelId}_${crypto.randomUUID()}`,
     stage,
     modelId,
     query,
@@ -203,7 +204,7 @@ export function sourceRecordFromResult(
     snippet: result.snippet,
     contentPreview: result.contentPreview,
     truncated: result.truncated,
-    retrievedAt: new Date().toISOString(),
+    retrievedAt,
   };
 }
 
