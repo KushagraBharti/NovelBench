@@ -16,6 +16,7 @@ export default function IdeaCard({ idea, label, categoryId }: IdeaCardProps) {
   const [expanded, setExpanded] = useState(false);
   const model = getModelIdentity(idea.modelId);
   const category = categoryId ? getCategoryById(categoryId) : undefined;
+  const summaryLabel = category?.ideaSchema.find((field) => field.key === "summary")?.label ?? "Summary";
 
   const fields = category
     ? category.ideaSchema
@@ -59,9 +60,12 @@ export default function IdeaCard({ idea, label, categoryId }: IdeaCardProps) {
 
       {/* Summary */}
       {idea.content.summary && (
-        <p className="text-base text-text-secondary italic leading-relaxed mb-4">
-          {idea.content.summary}
-        </p>
+        <div className="mb-4">
+          <span className="label block mb-0.5">{summaryLabel}</span>
+          <p className="text-base text-text-secondary italic leading-relaxed">
+            {idea.content.summary}
+          </p>
+        </div>
       )}
 
       {/* Fields */}

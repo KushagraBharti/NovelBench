@@ -16,10 +16,10 @@ describe("structured output normalization", () => {
       "{",
       '  "title": "Institutional Physics for Agentic AI",',
       '  "summary": "Learn hidden rules of organizations from action traces.",',
-      '  "description": "A long structured proposal with real operational telemetry.",',
-      '  "novelty": "Longitudinal institutional telemetry moat.",',
+      '  "problemGap": "Organizations hide causal state that current agent benchmarks miss.",',
       '  "hypothesis": "Agents can model hidden institutional state.",',
-      '  "methodology": "Deploy in shadow mode before bounded autonomy."',
+      '  "approach": "Deploy in shadow mode before bounded autonomy.",',
+      '  "decisiveTest": "Run side-by-side predictions on real institutional workflows."',
       "}",
       "```",
     ].join("\n");
@@ -27,23 +27,25 @@ describe("structured output normalization", () => {
     const idea = normalizeIdeaContent(raw, frontier);
     expect(idea.title).toBe("Institutional Physics for Agentic AI");
     expect(idea.hypothesis).toContain("hidden institutional state");
+    expect(idea.approach).toContain("shadow mode");
   });
 
   it("salvages truncated JSON-like idea responses", () => {
-    const raw = `{ "title": "Cognitive Niche Construction in Agentic AI", "summary": "Agents learn from environments with hidden constraints.", "description": "Build a research program around long-horizon adaptation in real institutions.", "novelty": "Moat from deployment traces.", "hypothesis": "Institutional motifs transfer across organizations.", "methodology": "Begin in low-risk domains and scale conservatively`;
+    const raw = `{ "title": "Cognitive Niche Construction in Agentic AI", "summary": "Agents learn from environments with hidden constraints.", "problemGap": "Current benchmarks miss real institutional adaptation.", "coreInsight": "Institutional motifs transfer across organizations.", "hypothesis": "Institutional motifs transfer across organizations.", "approach": "Begin in low-risk domains and scale conservatively`;
 
     const idea = normalizeIdeaContent(raw, frontier);
     expect(idea.title).toBe("Cognitive Niche Construction in Agentic AI");
-    expect(idea.description).toContain("real institutions");
+    expect(idea.description).toContain("Current benchmarks miss real institutional adaptation");
     expect(isUsableIdeaResponse(raw, frontier)).toBe(true);
   });
 
   it("falls back to labeled text when JSON is missing", () => {
-    const raw = `Research Title: Silent Systems\nAbstract: Study latent queues.\nFull Proposal: Observe delayed outcomes in opaque workflows.\nNovel Contribution: Introduces institution-aware agents.\nCore Hypothesis: Hidden state is learnable.\nApproach: Start in procurement.`;
+    const raw = `Research Title: Silent Systems\nAbstract: Study latent queues.\nScientific Gap: Opaque workflows hide state.\nCentral Insight: Institutions reveal themselves through delayed outcomes.\nCore Hypothesis: Hidden state is learnable.\nResearch Approach: Start in procurement.\nDecisive Experiment: Compare shadow-mode predictions against operator choices.`;
 
     const idea = normalizeIdeaContent(raw, frontier);
     expect(idea.title).toBe("Silent Systems");
-    expect(idea.methodology).toContain("procurement");
+    expect(idea.approach).toContain("procurement");
+    expect(idea.decisiveTest).toContain("shadow-mode");
   });
 
   it("normalizes critique vote JSON wrapped in prose", () => {

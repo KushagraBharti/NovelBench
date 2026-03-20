@@ -2,6 +2,34 @@ import { Category, CritiqueEntry, IdeaContent, RankingEntry } from "@/types";
 
 const DEFAULT_IDEA_KEYS = ["title", "summary", "description", "novelty"];
 
+function createEmptyIdeaContent(schemaKeys: string[]): IdeaContent {
+  const content = {
+    title: "",
+    summary: "",
+    description: "",
+    novelty: "",
+  } as IdeaContent;
+
+  for (const key of schemaKeys) {
+    if (!(key in content)) {
+      content[key] = "";
+    }
+  }
+
+  return content;
+}
+
+function firstSubstantiveField(
+  content: IdeaContent,
+  excludedKeys: string[]
+): string {
+  return (
+    Object.entries(content)
+      .filter(([key, value]) => !excludedKeys.includes(key) && typeof value === "string" && value.trim().length > 0)
+      .map(([, value]) => value)[0] ?? ""
+  );
+}
+
 function stripCodeFences(raw: string): string {
   return raw
     .replace(/^```(?:json)?\s*/i, "")
@@ -186,12 +214,7 @@ export function normalizeIdeaContent(raw: string, category?: Category): IdeaCont
   const jsonLikeFields = extractJsonLikeFields(raw, schemaKeys);
   const labeledFields = extractLabeledFields(raw, category);
 
-  const content: IdeaContent = {
-    title: "",
-    summary: "",
-    description: "",
-    novelty: "",
-  };
+  const content = createEmptyIdeaContent(schemaKeys);
 
   for (const key of schemaKeys) {
     const parsedValue = parsed ? valueToString(parsed[key]) : "";
@@ -215,18 +238,20 @@ export function normalizeIdeaContent(raw: string, category?: Category): IdeaCont
     content.summary = content.description.split("\n").map((line) => line.trim()).find(Boolean)?.slice(0, 240) ?? "";
   }
 
+  if (!content.summary) {
+    const summaryFallback = firstSubstantiveField(content, ["title", "description", "novelty"]);
+    if (summaryFallback) {
+      content.summary = summaryFallback.slice(0, 240);
+    }
+  }
+
   if (!content.description) {
-    const descriptiveField =
-      Object.entries(content)
-        .filter(([key, value]) => key !== "title" && key !== "summary" && typeof value === "string" && value.trim().length > 0)
-        .map(([, value]) => value)[0] ?? "";
+    const descriptiveField = firstSubstantiveField(content, ["title", "summary", "novelty"]);
     content.description = descriptiveField || fallbackText;
   }
 
   if (!content.novelty) {
-    const candidate = Object.entries(content)
-      .filter(([key, value]) => key !== "title" && key !== "summary" && key !== "description" && typeof value === "string" && value.trim().length > 0)
-      .map(([, value]) => value)[0];
+    const candidate = firstSubstantiveField(content, ["title", "summary", "description"]);
     if (typeof candidate === "string") {
       content.novelty = candidate;
     }

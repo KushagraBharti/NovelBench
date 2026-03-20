@@ -25,6 +25,7 @@ function IdeaPanel({
   allFields: { key: string; label: string }[];
   expanded: boolean;
 }) {
+  const summaryLabel = allFields.find((field) => field.key === "summary")?.label ?? "Summary";
   const fields = allFields.filter((f) => f.key !== "title" && f.key !== "summary");
   const visibleFields = expanded ? fields : fields.slice(0, 2);
 
@@ -35,7 +36,10 @@ function IdeaPanel({
         <h4 className="font-display text-lg text-text-primary mb-1">{idea.content.title}</h4>
       )}
       {idea.content.summary && (
-        <p className="text-base text-text-secondary italic mb-3">{idea.content.summary}</p>
+        <div className="mb-3">
+          <span className="label block mb-0.5">{summaryLabel}</span>
+          <p className="text-base text-text-secondary italic">{idea.content.summary}</p>
+        </div>
       )}
       <AnimatePresence initial={false}>
         {visibleFields.map((field) => {
@@ -51,7 +55,7 @@ function IdeaPanel({
               className="mb-2 overflow-hidden"
             >
               <span className="label block mb-0.5">{field.label}</span>
-              <p className="text-base text-text-secondary">{value}</p>
+              <p className="text-base text-text-secondary whitespace-pre-wrap">{value}</p>
             </motion.div>
           );
         })}
