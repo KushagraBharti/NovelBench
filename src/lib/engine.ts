@@ -7,10 +7,22 @@ import {
   IdeaContent,
   Ranking,
   RankingEntry,
+  RetrievedSourceRecord,
   RunCheckpointStage,
   RunFailureRecord,
+  SearchWebArgs,
+  ToolCallRecord,
+  WebEnabledStage,
 } from "@/types";
-import { callModel, ChatMessage, ReasoningConfig, streamModel } from "./openrouter";
+import {
+  callModel,
+  callModelTurn,
+  ChatMessage,
+  ChatToolCall,
+  ChatToolDefinition,
+  ReasoningConfig,
+  streamModel,
+} from "./openrouter";
 import { getModelName } from "./models";
 import { getCategoryById } from "./categories";
 import {
@@ -42,8 +54,52 @@ import {
   REASONING_VOTE,
 } from "./prompt-runtime";
 import { appendPromptCapture, PromptCaptureStage } from "./prompt-capture";
+import {
+  formatPriorSourceSummary,
+  searchWebWithExa,
+  SearchWebPayload,
+  sourceRecordFromResult,
+} from "./web-search";
 
 const ANONYMOUS_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H"];
+const SEARCH_WEB_TOOL: ChatToolDefinition = {
+  type: "function",
+  function: {
+    name: "search_web",
+    description:
+      "Search the live web for information that could materially improve the current idea. Returns the top 3 results with metadata, snippets, and bounded full-text previews.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "The exact search query to run.",
+        },
+        include_domains: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional domains to prefer or restrict to.",
+        },
+        exclude_domains: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional domains to exclude.",
+        },
+        freshness_days: {
+          type: "number",
+          description: "Optional recency filter in days.",
+        },
+        category_hint: {
+          type: "string",
+          enum: ["general", "news", "research", "company", "financial"],
+          description: "Optional hint to shape the search.",
+        },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+  },
+};
 
 interface JsonRetryOptions {
   retryOnInvalidJson?: boolean;
@@ -55,6 +111,90 @@ export interface BenchmarkRuntimeControls {
   createAbortController: (key: string) => AbortController;
   releaseAbortController: (key: string) => void;
   isCancellationRequested: () => Promise<boolean>;
+}
+
+function supportsToolCallingError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("tool") ||
+    message.includes("function call") ||
+    message.includes("tool_choice") ||
+    message.includes("parallel_tool_calls")
+  );
+}
+
+function normalizeSearchArgs(rawArgs: string): SearchWebArgs {
+  const parsed = JSON.parse(rawArgs) as Record<string, unknown>;
+  const toStringArray = (value: unknown): string[] | undefined =>
+    Array.isArray(value)
+      ? value.map((entry) => String(entry).trim()).filter(Boolean)
+      : undefined;
+
+  return {
+    query: String(parsed.query ?? "").trim(),
+    includeDomains: toStringArray(parsed.include_domains ?? parsed.includeDomains),
+    excludeDomains: toStringArray(parsed.exclude_domains ?? parsed.excludeDomains),
+    freshnessDays:
+      typeof parsed.freshness_days === "number"
+        ? parsed.freshness_days
+        : typeof parsed.freshnessDays === "number"
+          ? parsed.freshnessDays
+          : undefined,
+    categoryHint:
+      typeof parsed.category_hint === "string"
+        ? (parsed.category_hint as SearchWebArgs["categoryHint"])
+        : typeof parsed.categoryHint === "string"
+          ? (parsed.categoryHint as SearchWebArgs["categoryHint"])
+          : undefined,
+  };
+}
+
+function dedupeSearchPayload(
+  payload: SearchWebPayload,
+  seenUrls: Set<string>
+): SearchWebPayload {
+  const deduped = payload.results.filter((result) => {
+    if (seenUrls.has(result.url)) return false;
+    seenUrls.add(result.url);
+    return true;
+  });
+
+  return {
+    query: payload.query,
+    results: deduped,
+  };
+}
+
+function toolMessageContent(payload: SearchWebPayload): string {
+  return JSON.stringify(payload);
+}
+
+function createEmptyUsage(stage: WebEnabledStage, modelId: string) {
+  return {
+    stage,
+    modelId,
+    toolSupported: true,
+    downgradedReason: undefined as string | undefined,
+    usedSearch: false,
+    searchCalls: 0,
+    searchQueries: [] as string[],
+    sourceCount: 0,
+    totalLatencyMs: 0,
+  };
+}
+
+type StageToolTrace = {
+  toolCalls: ToolCallRecord[];
+  retrievedSources: RetrievedSourceRecord[];
+  usage: ReturnType<typeof createEmptyUsage>;
+};
+
+function createStageToolTrace(stage: WebEnabledStage, modelId: string): StageToolTrace {
+  return {
+    toolCalls: [],
+    retrievedSources: [],
+    usage: createEmptyUsage(stage, modelId),
+  };
 }
 
 function buildAnonymousMap(modelIds: string[]): Map<string, string> {
@@ -281,6 +421,341 @@ function createPromptCaptureLogger(
   };
 }
 
+async function appendDynamicPromptCapture(
+  runId: string,
+  stage: PromptCaptureStage,
+  modelId: string,
+  openRouterId: string,
+  reasoning: ReasoningConfig,
+  stream: boolean,
+  attempt: "initial" | "retry",
+  messages: ChatMessage[],
+  requestBody: Record<string, unknown>
+) {
+  await appendPromptCapture({
+    runId,
+    stage,
+    modelId,
+    openRouterId,
+    timestamp: new Date().toISOString(),
+    attempt,
+    stream,
+    reasoning,
+    messages,
+    requestBody,
+  });
+}
+
+async function executeSearchToolCall(
+  trace: StageToolTrace,
+  params: {
+    runId: string;
+    modelId: string;
+    stage: WebEnabledStage;
+    toolCall: ChatToolCall;
+    turn: number;
+    stageStartMs: number;
+    seenUrls: Set<string>;
+    config: BenchmarkRun["web"]["config"];
+    signal?: AbortSignal;
+  }
+): Promise<{ trace: StageToolTrace; toolMessage: ChatMessage }> {
+  const stageCalls = trace.toolCalls.length;
+  if (stageCalls >= params.config.maxSearchCallsPerStagePerModel) {
+    throw new Error(`search_web budget exhausted for ${params.stage}`);
+  }
+
+  if (Date.now() - params.stageStartMs > params.config.totalStageBudgetMs) {
+    throw new Error(`search_web time budget exhausted for ${params.stage}`);
+  }
+
+  if (params.toolCall.function.name !== "search_web") {
+    throw new Error(`Unsupported tool: ${params.toolCall.function.name}`);
+  }
+
+  const args = normalizeSearchArgs(params.toolCall.function.arguments);
+  const startedAt = new Date().toISOString();
+  const record: ToolCallRecord = {
+    id: params.toolCall.id,
+    modelId: params.modelId,
+    stage: params.stage,
+    toolName: "search_web",
+    startedAt,
+    args,
+    turn: params.turn,
+  };
+
+  trace = {
+    ...trace,
+    toolCalls: [...trace.toolCalls, record],
+    usage: {
+      ...trace.usage,
+      usedSearch: true,
+      searchCalls: trace.usage.searchCalls + 1,
+      searchQueries: [...trace.usage.searchQueries, args.query],
+    },
+  };
+
+  getRunEventBus().publishToolActivity(params.runId, {
+    modelId: params.modelId,
+    stage: params.stage,
+    toolName: "search_web",
+    state: "started",
+    callId: params.toolCall.id,
+    query: args.query,
+  });
+
+  try {
+    const payload = dedupeSearchPayload(
+      await searchWebWithExa(args, {
+        signal: params.signal,
+        timeoutMs: params.config.perCallTimeoutMs,
+        maxResults: params.config.maxResultsPerSearch,
+        maxCharsPerResult: params.config.maxCharsPerResult,
+      }),
+      params.seenUrls
+    );
+
+    const completedAt = new Date().toISOString();
+    const latencyMs = Date.parse(completedAt) - Date.parse(startedAt);
+    const sources = payload.results.map((result) =>
+      sourceRecordFromResult(params.runId, params.modelId, params.stage, payload.query, result)
+    );
+    trace = {
+      ...trace,
+      toolCalls: trace.toolCalls.map((entry) =>
+        entry.id === record.id
+          ? {
+              ...record,
+              completedAt,
+              latencyMs,
+              resultSummary: {
+                query: payload.query,
+                resultCount: payload.results.length,
+                urls: payload.results.map((result) => result.url),
+              },
+              resultPayload: payload,
+            }
+          : entry
+      ),
+      retrievedSources: [...trace.retrievedSources, ...sources],
+      usage: {
+        ...trace.usage,
+        sourceCount: trace.usage.sourceCount + payload.results.length,
+        totalLatencyMs: trace.usage.totalLatencyMs + latencyMs,
+      },
+    };
+
+    getRunEventBus().publishToolActivity(params.runId, {
+      modelId: params.modelId,
+      stage: params.stage,
+      toolName: "search_web",
+      state: "completed",
+      callId: params.toolCall.id,
+      query: payload.query,
+      resultCount: payload.results.length,
+      urls: payload.results.map((result) => result.url),
+    });
+
+    return {
+      trace,
+      toolMessage: {
+        role: "tool",
+        tool_call_id: params.toolCall.id,
+        name: "search_web",
+        content: toolMessageContent(payload),
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const completedAt = new Date().toISOString();
+    const latencyMs = Date.parse(completedAt) - Date.parse(startedAt);
+    trace = {
+      ...trace,
+      toolCalls: trace.toolCalls.map((entry) =>
+        entry.id === record.id
+          ? {
+              ...record,
+              completedAt,
+              latencyMs,
+              error: message,
+            }
+          : entry
+      ),
+      usage: {
+        ...trace.usage,
+        totalLatencyMs: trace.usage.totalLatencyMs + latencyMs,
+      },
+    };
+
+    getRunEventBus().publishToolActivity(params.runId, {
+      modelId: params.modelId,
+      stage: params.stage,
+      toolName: "search_web",
+      state: "failed",
+      callId: params.toolCall.id,
+      query: args.query,
+      error: message,
+    });
+    throw error;
+  }
+}
+
+async function runToolEnabledIdeaStage(
+  current: BenchmarkRun,
+  params: {
+    stage: WebEnabledStage;
+    modelId: string;
+    openRouterId: string;
+    reasoning: ReasoningConfig;
+    initialMessages: ChatMessage[];
+    signal?: AbortSignal;
+    onChunk?: (chunk: string) => void;
+  }
+): Promise<{ raw: string; trace: StageToolTrace }> {
+  const messages = [...params.initialMessages];
+  const seenUrls = new Set<string>();
+  const stageStartMs = Date.now();
+  const config = current.web.config;
+  let trace = createStageToolTrace(params.stage, params.modelId);
+
+  if (current.selectedModels.find((model) => model.id === params.modelId)?.supportsToolCalling === false) {
+    const raw = await streamModelAndCollect(
+      params.openRouterId,
+      messages,
+      params.reasoning,
+      isValidIdeaJson,
+      params.signal,
+      params.onChunk,
+      {
+        acceptPartialResponse: true,
+        retryOnInvalidJson: false,
+        onBeforeRequest: (requestBody, attempt) =>
+          appendDynamicPromptCapture(
+            current.id,
+            params.stage,
+            params.modelId,
+            params.openRouterId,
+            params.reasoning,
+            true,
+            attempt,
+            messages,
+            requestBody
+          ),
+      }
+    );
+    trace.usage.toolSupported = false;
+    trace.usage.downgradedReason = "Model catalog marked as tool-unsupported.";
+    return { raw, trace };
+  }
+
+  for (let turn = 0; turn < config.maxLoopTurns; turn++) {
+    if (Date.now() - stageStartMs > config.totalStageBudgetMs) {
+      break;
+    }
+
+    try {
+      const turnResult = await callModelTurn(params.openRouterId, messages, {
+        reasoning: params.reasoning,
+        timeoutMs: MODEL_TIMEOUT_MS,
+        signal: params.signal,
+        tools: [SEARCH_WEB_TOOL],
+        toolChoice: "auto",
+        parallelToolCalls: false,
+        onBeforeRequest: (requestBody) =>
+          appendDynamicPromptCapture(
+            current.id,
+            params.stage,
+            params.modelId,
+            params.openRouterId,
+            params.reasoning,
+            false,
+            "initial",
+            messages,
+            requestBody
+          ),
+      });
+
+      const assistantMessage: ChatMessage = {
+        role: "assistant",
+        content: turnResult.content,
+        tool_calls: turnResult.toolCalls.length > 0 ? turnResult.toolCalls : undefined,
+      };
+      messages.push(assistantMessage);
+
+      if (turnResult.toolCalls.length === 0) {
+        if (turnResult.content && params.onChunk) {
+          params.onChunk(turnResult.content);
+        }
+        return { raw: turnResult.content, trace };
+      }
+
+      for (const toolCall of turnResult.toolCalls) {
+        try {
+          const executed = await executeSearchToolCall(trace, {
+            runId: current.id,
+            modelId: params.modelId,
+            stage: params.stage,
+            toolCall,
+            turn,
+            stageStartMs,
+            seenUrls,
+            config,
+            signal: params.signal,
+          });
+          trace = executed.trace;
+          messages.push(executed.toolMessage);
+        } catch (error) {
+          if (supportsToolCallingError(error as Error)) {
+            throw error;
+          }
+
+          const message = error instanceof Error ? error.message : String(error);
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name: "search_web",
+            content: JSON.stringify({ error: message }),
+          });
+        }
+      }
+    } catch (error) {
+      if (supportsToolCallingError(error as Error)) {
+        trace.usage.toolSupported = false;
+        trace.usage.downgradedReason = (error as Error).message;
+        const fallbackRaw = await streamModelAndCollect(
+          params.openRouterId,
+          params.initialMessages,
+          params.reasoning,
+          isValidIdeaJson,
+          params.signal,
+          params.onChunk,
+          {
+            acceptPartialResponse: true,
+            retryOnInvalidJson: false,
+            onBeforeRequest: (requestBody, attempt) =>
+              appendDynamicPromptCapture(
+                current.id,
+                params.stage,
+                params.modelId,
+                params.openRouterId,
+                params.reasoning,
+                true,
+                attempt,
+                params.initialMessages,
+                requestBody
+              ),
+          }
+        );
+        return { raw: fallbackRaw, trace };
+      }
+      throw error;
+    }
+  }
+
+  throw new Error(`Tool loop exceeded limit during ${params.stage}`);
+}
+
 function createFailure(
   stage: RunCheckpointStage,
   message: string,
@@ -305,6 +780,33 @@ function activeCompetitorIds(run: BenchmarkRun): string[] {
 
 function shouldStopForLowQuorum(run: BenchmarkRun, candidateCount: number): boolean {
   return candidateCount < run.metadata.minimumSuccessfulModels;
+}
+
+function mergeStageToolTrace(run: BenchmarkRun, trace: StageToolTrace): BenchmarkRun {
+  return {
+    ...run,
+    web: {
+      ...run.web,
+      toolCalls: [
+        ...run.web.toolCalls.filter(
+          (entry) => !(entry.stage === trace.usage.stage && entry.modelId === trace.usage.modelId)
+        ),
+        ...trace.toolCalls,
+      ],
+      retrievedSources: [
+        ...run.web.retrievedSources.filter(
+          (entry) => !(entry.stage === trace.usage.stage && entry.modelId === trace.usage.modelId)
+        ),
+        ...trace.retrievedSources,
+      ],
+      usage: [
+        ...run.web.usage.filter(
+          (entry) => !(entry.stage === trace.usage.stage && entry.modelId === trace.usage.modelId)
+        ),
+        trace.usage,
+      ],
+    },
+  };
 }
 
 async function persistRun(run: BenchmarkRun) {
@@ -384,7 +886,6 @@ async function runGenerateStage(
   if (!category) throw new Error(`Unknown category: ${run.categoryId}`);
 
   let current = await persistAndPublish(run, "generating", `Generating ideas from ${run.selectedModels.length} models...`);
-  const generatePrompt = buildGeneratePrompt(category, current.prompt);
   const pendingModels = current.selectedModels.filter(
     (model) =>
       !current.ideas.some((idea) => idea.modelId === model.id) &&
@@ -394,40 +895,29 @@ async function runGenerateStage(
   const tasks = pendingModels.map(async (model) => {
     const abortController = controls.createAbortController(`generate:${model.id}`);
     try {
-      const raw = await streamModelAndCollect(
-        model.openRouterId,
-        [
-          { role: "system", content: generatePrompt.system },
-          { role: "user", content: generatePrompt.user },
-        ],
-        REASONING_GENERATE,
-        isValidIdeaJson,
-        abortController.signal,
-        (chunk) => getRunEventBus().publishToken(current.id, model.id, "generate", chunk),
-        {
-          acceptPartialResponse: true,
-          retryOnInvalidJson: false,
-          onBeforeRequest: createPromptCaptureLogger(
-            current.id,
-            "generate",
-            model.id,
-            model.openRouterId,
-            REASONING_GENERATE,
-            true,
-            [
-              { role: "system", content: generatePrompt.system },
-              { role: "user", content: generatePrompt.user },
-            ]
-          ),
-        }
-      );
+      const generatePrompt = buildGeneratePrompt(category, current.prompt, {
+        includeWebSearchInstructions: true,
+      });
+      const messages: ChatMessage[] = [
+        { role: "system", content: generatePrompt.system },
+        { role: "user", content: generatePrompt.user },
+      ];
+      const { raw, trace } = await runToolEnabledIdeaStage(current, {
+        stage: "generate",
+        modelId: model.id,
+        openRouterId: model.openRouterId,
+        reasoning: REASONING_GENERATE,
+        initialMessages: messages,
+        signal: abortController.signal,
+        onChunk: (chunk) => getRunEventBus().publishToken(current.id, model.id, "generate", chunk),
+      });
       const idea: Idea = {
         modelId: model.id,
         content: parseIdeaJson(raw, category),
         raw,
         timestamp: new Date().toISOString(),
       };
-      return { modelId: model.id, idea };
+      return { modelId: model.id, idea, trace };
     } finally {
       controls.releaseAbortController(`generate:${model.id}`);
     }
@@ -441,7 +931,7 @@ async function runGenerateStage(
     if (canceled) return canceled;
 
     if (result.value) {
-      const { modelId, idea } = result.value;
+      const { modelId, idea, trace } = result.value;
       current = {
         ...current,
         ideas: sortByModelOrder(
@@ -458,6 +948,7 @@ async function runGenerateStage(
           },
         },
       };
+      current = mergeStageToolTrace(current, trace);
       completed = [...new Set([...completed, modelId])];
       current.checkpoint = createCheckpointForStage("generate", completed);
       current = await persistAndPublish(
@@ -659,34 +1150,30 @@ async function runRevisionStage(
       if (critique.targetModelId === idea.modelId) critiquesForIdea.push(critique);
     }
 
-    const { system, user } = buildRevisionPrompt(idea, critiquesForIdea, category, current.prompt);
+    const priorSourceSummary = formatPriorSourceSummary(
+      current.web.retrievedSources
+        .filter((source) => source.stage === "generate" && source.modelId === idea.modelId)
+        .slice(0, current.web.config.maxResultsPerSearch * current.web.config.maxSearchCallsPerStagePerModel)
+    );
+    const { system, user } = buildRevisionPrompt(idea, critiquesForIdea, category, current.prompt, {
+      includeWebSearchInstructions: true,
+      priorSourceSummary,
+    });
     const abortController = controls.createAbortController(`revise:${idea.modelId}`);
     const messages: ChatMessage[] = [
       { role: "system", content: system },
       { role: "user", content: user },
     ];
     try {
-      const raw = await streamModelAndCollect(
-        model.openRouterId,
-        messages,
-        REASONING_REVISE,
-        isValidIdeaJson,
-        abortController.signal,
-        (chunk) => getRunEventBus().publishToken(current.id, idea.modelId, "revise", chunk),
-        {
-          acceptPartialResponse: true,
-          retryOnInvalidJson: false,
-          onBeforeRequest: createPromptCaptureLogger(
-            current.id,
-            "revise",
-            idea.modelId,
-            model.openRouterId,
-            REASONING_REVISE,
-            true,
-            messages
-          ),
-        }
-      );
+      const { raw, trace } = await runToolEnabledIdeaStage(current, {
+        stage: "revise",
+        modelId: idea.modelId,
+        openRouterId: model.openRouterId,
+        reasoning: REASONING_REVISE,
+        initialMessages: messages,
+        signal: abortController.signal,
+        onChunk: (chunk) => getRunEventBus().publishToken(current.id, idea.modelId, "revise", chunk),
+      });
       return {
         modelId: idea.modelId,
         idea: {
@@ -695,6 +1182,7 @@ async function runRevisionStage(
           raw,
           timestamp: new Date().toISOString(),
         } as Idea,
+        trace,
       };
     } finally {
       controls.releaseAbortController(`revise:${idea.modelId}`);
@@ -709,7 +1197,7 @@ async function runRevisionStage(
     if (canceled) return canceled;
 
     if (result.value) {
-      const { modelId, idea } = result.value;
+      const { modelId, idea, trace } = result.value;
       current = {
         ...current,
         revisedIdeas: sortByModelOrder(
@@ -726,6 +1214,7 @@ async function runRevisionStage(
           },
         },
       };
+      current = mergeStageToolTrace(current, trace);
       completed = [...new Set([...completed, modelId])];
       current.checkpoint = createCheckpointForStage("revise", completed);
       current = await persistAndPublish(

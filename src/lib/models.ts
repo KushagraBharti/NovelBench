@@ -218,7 +218,9 @@ const curatedCatalog: ModelCatalogEntry[] = [
 ];
 
 export function getModelCatalog(): ModelCatalogEntry[] {
-  return curatedCatalog.filter((model) => model.active);
+  return curatedCatalog
+    .filter((model) => model.active)
+    .map((model) => ({ supportsToolCalling: true, ...model }));
 }
 
 export function getDefaultModels(): ModelCatalogEntry[] {

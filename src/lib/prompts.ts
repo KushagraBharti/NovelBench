@@ -14,9 +14,17 @@ ${fields.join(",\n")}
 
 // --- Stage 1: Generate ---
 
-export function buildGeneratePrompt(category: Category, userPrompt: string): { system: string; user: string } {
+export function buildGeneratePrompt(
+  category: Category,
+  userPrompt: string,
+  options: { includeWebSearchInstructions?: boolean } = {}
+): { system: string; user: string } {
   const jsonShape = buildIdeaJsonInstruction(category);
   const copy = benchmarkPromptCopy.generate;
+  const instructionLines = [
+    ...copy.instructions,
+    ...(options.includeWebSearchInstructions ? copy.webSearchInstructions : []),
+  ];
 
   const system = `${category.systemPrompt}
 
@@ -29,7 +37,7 @@ ${category.evaluationCriteria.map((c) => `- ${c}`).join("\n")}`;
 Prompt: ${userPrompt}
 
 Instructions:
-${copy.instructions.map((line) => `- ${line}`).join("\n")}
+${instructionLines.map((line) => `- ${line}`).join("\n")}
 
 ${copy.outputLeadIn}
 ${jsonShape}`;
@@ -113,10 +121,18 @@ export function buildRevisionPrompt(
   originalIdea: Idea,
   critiques: CritiqueEntry[],
   category: Category,
-  originalPrompt: string
+  originalPrompt: string,
+  options: {
+    includeWebSearchInstructions?: boolean;
+    priorSourceSummary?: string;
+  } = {}
 ): { system: string; user: string } {
   const jsonShape = buildIdeaJsonInstruction(category);
   const copy = benchmarkPromptCopy.revise;
+  const instructionLines = [
+    ...copy.instructions,
+    ...(options.includeWebSearchInstructions ? copy.webSearchInstructions : []),
+  ];
 
   const critiqueText = critiques
     .map(
@@ -146,8 +162,12 @@ ${formatIdeaContent(originalIdea.content, category)}
 ${critiqueText}
 --- END CRITIQUES ---
 
-Instructions:
-${copy.instructions.map((line) => `- ${line}`).join("\n")}
+${options.priorSourceSummary ? `--- PREVIOUSLY RETRIEVED SOURCES ---
+${options.priorSourceSummary}
+--- END PREVIOUS SOURCES ---
+
+` : ""}Instructions:
+${instructionLines.map((line) => `- ${line}`).join("\n")}
 
 ${copy.outputLeadIn}
 ${jsonShape}`;

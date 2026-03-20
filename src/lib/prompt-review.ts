@@ -1,4 +1,4 @@
-import { BenchmarkRun, CritiqueEntry, Idea, ModelCatalogEntry, RunCheckpointStage } from "@/types";
+import { BenchmarkRun, CritiqueEntry, ModelCatalogEntry, RunCheckpointStage } from "@/types";
 import { getCategoryById } from "./categories";
 import { buildChatCompletionBody, ChatMessage, ReasoningConfig } from "./openrouter";
 import {
@@ -14,6 +14,7 @@ import {
   buildGeneratePrompt,
   buildRevisionPrompt,
 } from "./prompts";
+import { formatPriorSourceSummary } from "./web-search";
 
 const ANONYMOUS_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -119,7 +120,12 @@ function buildEntry(
   reasoning: ReasoningConfig,
   stream: boolean,
   notes: string[],
-  anonymousModel?: string
+  anonymousModel?: string,
+  options: {
+    tools?: Record<string, unknown>[];
+    toolChoice?: "auto" | "none";
+    parallelToolCalls?: boolean;
+  } = {}
 ): PromptReviewEntry {
   return {
     stage,
@@ -129,7 +135,13 @@ function buildEntry(
     reasoning,
     stream,
     messages,
-    requestBody: buildChatCompletionBody(model.openRouterId, messages, { reasoning, stream }),
+    requestBody: buildChatCompletionBody(model.openRouterId, messages, {
+      reasoning,
+      stream,
+      tools: options.tools as never,
+      toolChoice: options.toolChoice,
+      parallelToolCalls: options.parallelToolCalls,
+    }),
     systemPrompt: messages[0]?.content ?? "",
     userPrompt: messages[1]?.content ?? "",
     anonymousModel,
@@ -164,7 +176,9 @@ export function buildPromptReview(run: BenchmarkRun): PromptReviewResponse {
   }
 
   const entries: PromptReviewEntry[] = [];
-  const generatePrompt = buildGeneratePrompt(category, run.prompt);
+  const generatePrompt = buildGeneratePrompt(category, run.prompt, {
+    includeWebSearchInstructions: true,
+  });
 
   for (const model of run.selectedModels) {
     const messages: ChatMessage[] = [
@@ -180,9 +194,25 @@ export function buildPromptReview(run: BenchmarkRun): PromptReviewResponse {
         true,
         [
           "Generation is streamed token-by-token.",
+          "Generation now exposes the search_web tool by default.",
           "If streaming fails after partial output, the partial text may still be accepted and normalized instead of retried.",
           "The app does not persist the outbound prompt payload; this view reconstructs it deterministically from code and run data.",
-        ]
+        ],
+        undefined,
+        {
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "search_web",
+                description: "Search the live web for information that could materially improve the current idea.",
+                parameters: { type: "object" },
+              },
+            },
+          ],
+          toolChoice: "auto",
+          parallelToolCalls: false,
+        }
       )
     );
   }
@@ -225,7 +255,14 @@ export function buildPromptReview(run: BenchmarkRun): PromptReviewResponse {
 
   for (const idea of revisionIdeas) {
     const model = getModel(run, idea.modelId);
-    const prompt = buildRevisionPrompt(idea, critiquesForIdea(run, idea.modelId), category, run.prompt);
+    const prompt = buildRevisionPrompt(idea, critiquesForIdea(run, idea.modelId), category, run.prompt, {
+      includeWebSearchInstructions: true,
+      priorSourceSummary: formatPriorSourceSummary(
+        run.web.retrievedSources
+          .filter((source) => source.stage === "generate" && source.modelId === idea.modelId)
+          .slice(0, run.web.config.maxResultsPerSearch * run.web.config.maxSearchCallsPerStagePerModel)
+      ),
+    });
     const messages: ChatMessage[] = [
       { role: "system", content: prompt.system },
       { role: "user", content: prompt.user },
@@ -239,9 +276,25 @@ export function buildPromptReview(run: BenchmarkRun): PromptReviewResponse {
         true,
         [
           "Revision is streamed token-by-token.",
+          "Revision now exposes the search_web tool by default.",
           "As in generation, partial streamed output may be accepted and normalized instead of retried.",
           "Revision prompts include all successful model critiques plus any saved human critiques targeting that model.",
-        ]
+        ],
+        undefined,
+        {
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "search_web",
+                description: "Search the live web for information that could materially improve the revision.",
+                parameters: { type: "object" },
+              },
+            },
+          ],
+          toolChoice: "auto",
+          parallelToolCalls: false,
+        }
       )
     );
   }

@@ -22,7 +22,15 @@ export async function GET(
       const unsubscribe = getRunEventBus().subscribe(id, (event) => {
         try {
           controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify(event.type === "progress" ? event.payload : { type: "token", ...event.payload })}\n\n`)
+            encoder.encode(
+              `data: ${JSON.stringify(
+                event.type === "progress"
+                  ? event.payload
+                  : event.type === "token"
+                    ? { type: "token", ...event.payload }
+                    : { type: "tool", ...event.payload }
+              )}\n\n`
+            )
           );
         } catch {
           unsubscribe();

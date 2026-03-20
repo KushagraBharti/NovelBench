@@ -26,6 +26,7 @@ export interface ModelCatalogEntry {
   initial: string;
   defaultEnabled: boolean;
   active: boolean;
+  supportsToolCalling?: boolean;
   pricing?: ModelPricing;
 }
 
@@ -92,6 +93,95 @@ export interface RankingEntry {
 export interface Ranking {
   judgeModelId: string;
   rankings: RankingEntry[];
+}
+
+export type WebEnabledStage = "generate" | "revise";
+
+export interface SearchWebArgs {
+  query: string;
+  includeDomains?: string[];
+  excludeDomains?: string[];
+  freshnessDays?: number;
+  categoryHint?: "general" | "news" | "research" | "company" | "financial";
+}
+
+export interface SearchWebResultItem {
+  id: string;
+  title: string;
+  url: string;
+  domain: string;
+  publishedDate?: string;
+  snippet?: string;
+  highlights?: string[];
+  score?: number;
+  contentPreview: string;
+  truncated: boolean;
+}
+
+export interface ToolCallRecord {
+  id: string;
+  stage: WebEnabledStage;
+  modelId: string;
+  toolName: "search_web";
+  startedAt: string;
+  completedAt?: string;
+  latencyMs?: number;
+  args: SearchWebArgs;
+  resultSummary?: {
+    query: string;
+    resultCount: number;
+    urls: string[];
+  };
+  resultPayload?: {
+    query: string;
+    results: SearchWebResultItem[];
+  };
+  turn: number;
+  error?: string;
+}
+
+export interface RetrievedSourceRecord {
+  id: string;
+  stage: WebEnabledStage;
+  modelId: string;
+  query: string;
+  url: string;
+  title?: string;
+  domain?: string;
+  publishedDate?: string;
+  snippet?: string;
+  highlights?: string[];
+  contentPreview: string;
+  truncated: boolean;
+  retrievedAt: string;
+}
+
+export interface ModelStageWebUsageSummary {
+  stage: WebEnabledStage;
+  modelId: string;
+  toolSupported: boolean;
+  downgradedReason?: string;
+  usedSearch: boolean;
+  searchCalls: number;
+  searchQueries: string[];
+  sourceCount: number;
+  totalLatencyMs: number;
+}
+
+export interface BenchmarkWebSearchConfig {
+  maxSearchCallsPerStagePerModel: number;
+  maxResultsPerSearch: number;
+  maxCharsPerResult: number;
+  perCallTimeoutMs: number;
+  totalStageBudgetMs: number;
+  maxLoopTurns: number;
+}
+
+export interface BenchmarkWebState {
+  config: BenchmarkWebSearchConfig;
+  toolCalls: ToolCallRecord[];
+  retrievedSources: RetrievedSourceRecord[];
+  usage: ModelStageWebUsageSummary[];
 }
 
 export type BenchmarkStatus =
@@ -187,6 +277,7 @@ export interface BenchmarkRun {
   checkpoint: RunCheckpoint;
   cancellation: RunCancellation;
   circuitBreaker: CircuitBreakerState;
+  web: BenchmarkWebState;
   metadata: {
     participantCount: number;
     minimumSuccessfulModels: number;

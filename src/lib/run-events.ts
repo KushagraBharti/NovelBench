@@ -1,8 +1,25 @@
 import { BenchmarkProgress, BenchmarkRun } from "@/types";
 
+export type ToolActivityEvent =
+  | {
+      type: "tool";
+      payload: {
+        modelId: string;
+        stage: "generate" | "revise";
+        toolName: "search_web";
+        state: "started" | "completed" | "failed";
+        callId: string;
+        query?: string;
+        resultCount?: number;
+        urls?: string[];
+        error?: string;
+      };
+    };
+
 type RunEvent =
   | { type: "progress"; payload: BenchmarkProgress }
-  | { type: "token"; payload: { modelId: string; stage: string; chunk: string } };
+  | { type: "token"; payload: { modelId: string; stage: string; chunk: string } }
+  | ToolActivityEvent;
 
 type Listener = (event: RunEvent) => void;
 
@@ -45,6 +62,16 @@ class RunEventBus {
     this.emit(runId, {
       type: "token",
       payload: { modelId, stage, chunk },
+    });
+  }
+
+  publishToolActivity(
+    runId: string,
+    payload: ToolActivityEvent["payload"]
+  ) {
+    this.emit(runId, {
+      type: "tool",
+      payload,
     });
   }
 

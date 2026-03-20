@@ -3,6 +3,7 @@ import path from "path";
 import {
   BenchmarkRun,
   BenchmarkRunSummary,
+  BenchmarkWebState,
   CircuitBreakerState,
   CreateBenchmarkRunInput,
   ModelCatalogEntry,
@@ -17,6 +18,7 @@ import {
   getModelById,
   resolveSelectedModels,
 } from "./models";
+import { DEFAULT_WEB_SEARCH_CONFIG } from "./web-search";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const RUNS_DIR = path.join(DATA_DIR, "runs");
@@ -74,6 +76,17 @@ function createCircuitBreakerState(): CircuitBreakerState {
   return {
     status: "closed",
     failureCount: 0,
+  };
+}
+
+function createWebState(): BenchmarkWebState {
+  return {
+    config: {
+      ...DEFAULT_WEB_SEARCH_CONFIG,
+    },
+    toolCalls: [],
+    retrievedSources: [],
+    usage: [],
   };
 }
 
@@ -228,6 +241,7 @@ function normalizeLegacyRun(run: Partial<BenchmarkRun>): BenchmarkRun {
       ),
     cancellation: run.cancellation ?? { requested: false },
     circuitBreaker: run.circuitBreaker ?? createCircuitBreakerState(),
+    web: run.web ?? createWebState(),
     metadata:
       run.metadata ?? {
         participantCount,
@@ -303,6 +317,7 @@ class FileBenchmarkRepository implements BenchmarkRepository {
       checkpoint: createCheckpoint(),
       cancellation: { requested: false },
       circuitBreaker: createCircuitBreakerState(),
+      web: createWebState(),
       metadata: {
         participantCount: selectedModels.length,
         minimumSuccessfulModels: minimumSuccessfulModels(selectedModels.length),

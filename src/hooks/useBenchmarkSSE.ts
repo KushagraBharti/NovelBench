@@ -3,6 +3,18 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { BenchmarkRun, BenchmarkStatus } from "@/types";
 
+export interface LiveToolActivity {
+  modelId: string;
+  stage: "generate" | "revise";
+  toolName: "search_web";
+  state: "started" | "completed" | "failed";
+  callId: string;
+  query?: string;
+  resultCount?: number;
+  urls?: string[];
+  error?: string;
+}
+
 interface SSEState {
   runId: string | null;
   isRunning: boolean;
@@ -11,6 +23,7 @@ interface SSEState {
   result: BenchmarkRun | null;
   error: string | null;
   streamingText: Record<string, string>;
+  toolActivity: Record<string, LiveToolActivity>;
 }
 
 interface StartBenchmarkPayload {
@@ -29,6 +42,7 @@ export function useBenchmarkSSE() {
     result: null,
     error: null,
     streamingText: {},
+    toolActivity: {},
   });
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -56,6 +70,17 @@ export function useBenchmarkSSE() {
           return;
         }
 
+        if (event.type === "tool") {
+          setState((prev) => ({
+            ...prev,
+            toolActivity: {
+              ...prev.toolActivity,
+              [`${event.stage}:${event.modelId}:${event.callId}`]: event,
+            },
+          }));
+          return;
+        }
+
         setState((prev) => {
           const nextStatus = event.status as BenchmarkStatus;
           const isTerminal = ["complete", "partial", "canceled", "dead_lettered", "error"].includes(nextStatus);
@@ -72,6 +97,10 @@ export function useBenchmarkSSE() {
             result: event.run ?? prev.result,
             error: nextStatus === "error" ? event.step || "Benchmark failed" : null,
             streamingText: nextStatus !== prev.status ? {} : prev.streamingText,
+            toolActivity:
+              nextStatus !== prev.status && !["generating", "revising"].includes(nextStatus)
+                ? {}
+                : prev.toolActivity,
           };
         });
       } catch {
@@ -98,6 +127,7 @@ export function useBenchmarkSSE() {
         result: null,
         error: null,
         streamingText: {},
+        toolActivity: {},
       });
 
       const response = await fetch("/api/benchmark", {
@@ -165,6 +195,7 @@ export function useBenchmarkSSE() {
       result: null,
       error: null,
       streamingText: {},
+      toolActivity: {},
     });
   }, [closeSource]);
 
@@ -184,7 +215,9 @@ export function useBenchmarkSSE() {
         (state.result.ideas.length > 0 ||
           state.result.critiqueVotes.length > 0 ||
           state.result.revisedIdeas.length > 0 ||
-          state.result.finalRankings.length > 0),
+          state.result.finalRankings.length > 0 ||
+          state.result.web.toolCalls.length > 0 ||
+          Object.keys(state.toolActivity).length > 0),
     }),
     [connectToRun, performAction, reset, startBenchmark, state]
   );

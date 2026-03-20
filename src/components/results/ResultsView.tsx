@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { BenchmarkRun } from "@/types";
+import { LiveToolActivity } from "@/hooks/useBenchmarkSSE";
 import { getModelName } from "@/lib/models";
 import { getModelIdentity, getModelOrder } from "@/utils/model-identity";
 import Tabs, { TabItem } from "@/components/ui/Tabs";
@@ -12,14 +13,16 @@ import CritiqueCard from "./CritiqueCard";
 import RankingDisplay from "./RankingDisplay";
 import IdeaComparison from "./IdeaComparison";
 import StreamingCard from "./StreamingCard";
+import SearchActivityPanel from "./SearchActivityPanel";
 
 interface ResultsViewProps {
   run: BenchmarkRun;
   isLive?: boolean;
   streamingText?: Record<string, string>;
+  toolActivity?: Record<string, LiveToolActivity>;
 }
 
-export default function ResultsView({ run, isLive, streamingText = {} }: ResultsViewProps) {
+export default function ResultsView({ run, isLive, streamingText = {}, toolActivity = {} }: ResultsViewProps) {
   const [activeTab, setActiveTab] = useState("ideas");
   const [critiqueFilter, setCritiqueFilter] = useState<string | null>(null);
   const prevStatusRef = useRef<string | null>(null);
@@ -55,6 +58,54 @@ export default function ResultsView({ run, isLive, streamingText = {} }: Results
     for (const critique of run.humanCritiques) ids.add(critique.targetModelId);
     return Array.from(ids);
   }, [run.critiqueVotes, run.humanCritiques]);
+  const hasSearchActivity = run.web.toolCalls.length > 0 || Object.keys(toolActivity).length > 0;
+  const liveSearchEntries = Object.values(toolActivity);
+
+  const getStreamingToolEntries = useMemo(() => {
+    return (modelId: string, stage: "generate" | "revise") => {
+      const merged = new Map<
+        string,
+        {
+          key: string;
+          toolName: string;
+          state: "started" | "completed" | "failed";
+          query?: string;
+          urls?: string[];
+          resultCount?: number;
+          error?: string;
+        }
+      >();
+
+      for (const call of run.web.toolCalls) {
+        if (call.modelId !== modelId || call.stage !== stage) continue;
+        merged.set(call.id, {
+          key: call.id,
+          toolName: call.toolName,
+          state: call.error ? "failed" : call.completedAt ? "completed" : "started",
+          query: call.args.query,
+          urls: call.resultSummary?.urls,
+          resultCount: call.resultSummary?.resultCount,
+          error: call.error,
+        });
+      }
+
+      for (const entry of liveSearchEntries) {
+        if (entry.modelId !== modelId || entry.stage !== stage) continue;
+        const existing = merged.get(entry.callId);
+        merged.set(entry.callId, {
+          key: entry.callId,
+          toolName: entry.toolName,
+          state: entry.state,
+          query: entry.query ?? existing?.query,
+          urls: entry.urls ?? existing?.urls,
+          resultCount: entry.resultCount ?? existing?.resultCount,
+          error: entry.error ?? existing?.error,
+        });
+      }
+
+      return Array.from(merged.values()).sort((a, b) => a.key.localeCompare(b.key));
+    };
+  }, [liveSearchEntries, run.web.toolCalls]);
 
   const tabs: TabItem[] = [
     { id: "ideas", label: "Ideas", count: run.ideas.length, available: run.ideas.length > 0 },
@@ -62,6 +113,7 @@ export default function ResultsView({ run, isLive, streamingText = {} }: Results
     { id: "rankings", label: "Round 1", available: run.critiqueVotes.length > 0 },
     { id: "revised", label: "Revisions", count: run.revisedIdeas.length, available: run.revisedIdeas.length > 0 || run.status === "revising" },
     { id: "final", label: "Final", available: run.finalRankings.length > 0 || ["partial", "complete", "canceled"].includes(run.status) },
+    ...(!isLive ? [{ id: "search", label: "Search", count: run.web.retrievedSources.length, available: hasSearchActivity }] : []),
   ];
 
   return (
@@ -92,7 +144,13 @@ export default function ResultsView({ run, isLive, streamingText = {} }: Results
               visibleModelOrder
                 .filter((modelId) => !run.ideas.some((idea) => idea.modelId === modelId) && !run.failedModels.includes(modelId))
                 .map((modelId) => (
-                  <StreamingCard key={modelId} modelId={modelId} text={streamingText[modelId] ?? ""} stage="generate" />
+                  <StreamingCard
+                    key={modelId}
+                    modelId={modelId}
+                    text={streamingText[modelId] ?? ""}
+                    stage="generate"
+                    toolEntries={getStreamingToolEntries(modelId, "generate")}
+                  />
                 ))}
 
             {run.failedModels.length > 0 && (
@@ -214,7 +272,13 @@ export default function ResultsView({ run, isLive, streamingText = {} }: Results
               visibleModelOrder
                 .filter((modelId) => !run.revisedIdeas.some((idea) => idea.modelId === modelId) && !run.failedModels.includes(modelId))
                 .map((modelId) => (
-                  <StreamingCard key={modelId} modelId={modelId} text={streamingText[modelId] ?? ""} stage="revise" />
+                  <StreamingCard
+                    key={modelId}
+                    modelId={modelId}
+                    text={streamingText[modelId] ?? ""}
+                    stage="revise"
+                    toolEntries={getStreamingToolEntries(modelId, "revise")}
+                  />
                 ))}
           </div>
         )}
@@ -228,6 +292,12 @@ export default function ResultsView({ run, isLive, streamingText = {} }: Results
                 <p className="text-base text-text-secondary">{run.currentStep}</p>
               </div>
             )}
+          </motion.div>
+        )}
+
+        {activeTab === "search" && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <SearchActivityPanel run={run} liveToolActivity={toolActivity} />
           </motion.div>
         )}
       </Tabs>

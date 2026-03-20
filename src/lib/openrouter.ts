@@ -6,9 +6,23 @@ interface StreamDeltaChunk {
   choices?: { delta?: { content?: string } }[];
 }
 
+export interface ChatToolFunction {
+  name: string;
+  arguments: string;
+}
+
+export interface ChatToolCall {
+  id: string;
+  type: "function";
+  function: ChatToolFunction;
+}
+
 export interface ChatMessage {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string;
+  tool_call_id?: string;
+  name?: string;
+  tool_calls?: ChatToolCall[];
 }
 
 export interface ReasoningConfig {
@@ -16,11 +30,22 @@ export interface ReasoningConfig {
   exclude?: boolean;
 }
 
+export interface ChatToolDefinition {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
 interface OpenRouterResponse {
   choices: {
     message: {
-      content: string;
+      content?: string | null;
+      tool_calls?: ChatToolCall[];
     };
+    finish_reason?: string | null;
   }[];
   error?: {
     message: string;
@@ -34,6 +59,9 @@ export interface CallModelOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
   onBeforeRequest?: (body: Record<string, unknown>) => void | Promise<void>;
+  tools?: ChatToolDefinition[];
+  toolChoice?: "auto" | "none" | { type: "function"; function: { name: string } };
+  parallelToolCalls?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -41,7 +69,7 @@ const DEFAULT_TIMEOUT_MS = 90_000;
 export function buildChatCompletionBody(
   openRouterId: string,
   messages: ChatMessage[],
-  options: Pick<CallModelOptions, "reasoning"> & { stream?: boolean }
+  options: Pick<CallModelOptions, "reasoning" | "tools" | "toolChoice" | "parallelToolCalls"> & { stream?: boolean }
 ): Record<string, unknown> {
   const body: Record<string, unknown> = {
     model: openRouterId,
@@ -55,6 +83,12 @@ export function buildChatCompletionBody(
 
   if (options.reasoning) {
     body.reasoning = options.reasoning;
+  }
+
+  if (options.tools?.length) {
+    body.tools = options.tools;
+    body.tool_choice = options.toolChoice ?? "auto";
+    body.parallel_tool_calls = options.parallelToolCalls ?? false;
   }
 
   return body;
@@ -137,7 +171,7 @@ export async function callModel(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const body = buildChatCompletionBody(openRouterId, messages, { reasoning });
+      const body = buildChatCompletionBody(openRouterId, messages, { reasoning, tools: options.tools, toolChoice: options.toolChoice, parallelToolCalls: options.parallelToolCalls });
       await onBeforeRequest?.(body);
       const response = await requestOpenRouter(body, timeoutMs, signal);
       const data: OpenRouterResponse = await response.json();
@@ -164,13 +198,67 @@ export async function callModel(
   throw lastError ?? new Error("Unknown error calling OpenRouter");
 }
 
+export interface CallModelTurnResult {
+  content: string;
+  toolCalls: ChatToolCall[];
+  finishReason?: string | null;
+}
+
+export async function callModelTurn(
+  openRouterId: string,
+  messages: ChatMessage[],
+  options: CallModelOptions = {}
+): Promise<CallModelTurnResult> {
+  const {
+    reasoning,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    signal,
+    onBeforeRequest,
+    tools,
+    toolChoice,
+    parallelToolCalls,
+  } = options;
+
+  const body = buildChatCompletionBody(openRouterId, messages, {
+    reasoning,
+    tools,
+    toolChoice,
+    parallelToolCalls,
+  });
+  await onBeforeRequest?.(body);
+  const response = await requestOpenRouter(body, timeoutMs, signal);
+  const data: OpenRouterResponse = await response.json();
+
+  if (data.error) {
+    throw new Error(`OpenRouter error: ${data.error.message}`);
+  }
+
+  const choice = data.choices?.[0];
+  const message = choice?.message;
+  if (!message) {
+    throw new Error("No message in OpenRouter response");
+  }
+
+  return {
+    content: typeof message.content === "string" ? message.content : "",
+    toolCalls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
+    finishReason: choice?.finish_reason,
+  };
+}
+
 export async function* streamModel(
   openRouterId: string,
   messages: ChatMessage[],
   options: CallModelOptions = {}
 ): AsyncGenerator<string> {
   const { reasoning, timeoutMs = DEFAULT_TIMEOUT_MS, signal, onBeforeRequest } = options;
-  const body = buildChatCompletionBody(openRouterId, messages, { reasoning, stream: true });
+  const body = buildChatCompletionBody(openRouterId, messages, {
+    reasoning,
+    stream: true,
+    tools: options.tools,
+    toolChoice: options.toolChoice,
+    parallelToolCalls: options.parallelToolCalls,
+  });
   await onBeforeRequest?.(body);
 
   const response = await requestOpenRouter(body, timeoutMs, signal);

@@ -15,6 +15,12 @@ export const benchmarkPromptCopy = {
       "Escape internal quotes and newlines inside JSON strings",
       "Your response will be judged via a council of expert judges, so your goal is to impress these judges with the novelty, creativity, depth, and thoughtfulness of your idea.",
     ],
+    webSearchInstructions: [
+      "You may optionally use the search_web tool if live web information would materially improve your idea.",
+      "Use search selectively. Search is not required for every prompt.",
+      "If you search, prefer one strong query first. You have limited searches and each search returns only the top results with bounded full-text source bundles.",
+      "Use retrieved material as supporting evidence or inspiration, but the final idea must still be your own synthesis and judgment.",
+    ],
     outputLeadIn: "Respond with ONLY valid JSON in this exact format (no other text):",
   },
   
@@ -66,6 +72,12 @@ export const benchmarkPromptCopy = {
       "Every property value must be valid JSON",
       "Escape internal quotes and newlines inside JSON strings",
       "Your response will be judged via a council of expert judges, so your goal is to impress these judges with the novelty, creativity, depth, and thoughtfulness of your idea.",
+    ],
+    webSearchInstructions: [
+      "You may optionally use the search_web tool if live web information would materially improve your revision.",
+      "Use search selectively. Search is not required if the critiques already give enough direction.",
+      "You may be shown compact summaries of sources found earlier, but you should search again only if you need fresher or better evidence.",
+      "Use retrieved material as supporting evidence or inspiration, but the revised idea must remain your own synthesis and judgment.",
     ],
     outputLeadIn: "Respond with ONLY valid JSON in this exact format (no other text):",
   },
