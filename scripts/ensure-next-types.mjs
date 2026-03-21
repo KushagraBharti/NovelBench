@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const roots = [
@@ -13,3 +13,15 @@ for (const root of roots) {
   await writeFile(join(root, "cache-life.ts"), "export {};\n", "utf8");
   await writeFile(join(root, "cache-life.d.ts"), "export {};\n", "utf8");
 }
+
+const tsconfigPath = join(process.cwd(), "tsconfig.json");
+const tsconfig = JSON.parse(await readFile(tsconfigPath, "utf8"));
+const include = Array.isArray(tsconfig.include) ? tsconfig.include : [];
+tsconfig.include = include.filter(
+  (entry) =>
+    entry !== ".next-foundation/types/**/*.ts" &&
+    entry !== ".next-foundation/dev/types/**/*.ts" &&
+    entry !== ".next-build/types/**/*.ts" &&
+    entry !== ".next-build/dev/types/**/*.ts",
+);
+await writeFile(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`, "utf8");
