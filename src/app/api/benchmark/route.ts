@@ -32,9 +32,16 @@ export async function POST(request: NextRequest) {
 
     return Response.json(run);
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to start benchmark";
+    const status =
+      message === "Not authenticated"
+        ? 401
+        : message === "Unauthorized"
+          ? 403
+          : 400;
     return Response.json(
-      { error: error instanceof Error ? error.message : "Failed to start benchmark" },
-      { status: 400 }
+      { error: message },
+      { status }
     );
   }
 }

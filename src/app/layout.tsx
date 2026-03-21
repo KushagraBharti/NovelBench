@@ -7,6 +7,7 @@ import Footer from "@/components/layout/Footer";
 import PageTransition from "@/components/layout/PageTransition";
 import { EasterEggProvider } from "@/components/effects/EasterEggProvider";
 import { Toaster } from "sonner";
+import ConvexClientProvider from "./ConvexClientProvider";
 
 const instrumentSerif = Instrument_Serif({
   weight: "400",
@@ -46,24 +47,26 @@ export default async function RootLayout({
     >
       <body className="antialiased min-h-screen flex flex-col">
         <ConvexAuthNextjsServerProvider>
-          <EasterEggProvider>
-            <Navbar />
-            <main className="flex-1 pt-16">
-              <PageTransition>{children}</PageTransition>
-            </main>
-            <Footer />
-            <Toaster
-              theme="dark"
-              toastOptions={{
-                style: {
-                  background: "#111114",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  color: "#E8E4DE",
-                  fontFamily: "var(--font-body)",
-                },
-              }}
-            />
-          </EasterEggProvider>
+          <ConvexClientProvider>
+            <EasterEggProvider>
+              <Navbar />
+              <main className="flex-1 pt-16">
+                <PageTransition>{children}</PageTransition>
+              </main>
+              <Footer />
+              <Toaster
+                theme="dark"
+                toastOptions={{
+                  style: {
+                    background: "#111114",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    color: "#E8E4DE",
+                    fontFamily: "var(--font-body)",
+                  },
+                }}
+              />
+            </EasterEggProvider>
+          </ConvexClientProvider>
         </ConvexAuthNextjsServerProvider>
       </body>
     </html>

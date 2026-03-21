@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { motion } from "framer-motion";
 import { allModelIdentities } from "@/utils/model-identity";
+import AuthAwareLink from "@/components/auth/AuthAwareLink";
 
 export default function Hero() {
   return (
@@ -57,18 +57,20 @@ export default function Hero() {
             transition={{ duration: 0.5, delay: 0.6 }}
             className="flex items-center gap-6"
           >
-            <Link
+            <AuthAwareLink
               href="/arena"
               className="px-7 py-3.5 bg-accent text-white text-base font-medium rounded-lg hover:bg-accent-hover transition-colors"
+              signedInChildren="Enter the Arena"
+              signedOutChildren="Sign in to Compete"
             >
               Enter the Arena
-            </Link>
-            <Link
+            </AuthAwareLink>
+            <AuthAwareLink
               href="/leaderboard"
               className="text-base text-text-muted hover:text-text-primary transition-colors"
             >
               View rankings &rarr;
-            </Link>
+            </AuthAwareLink>
           </motion.div>
         </div>
 

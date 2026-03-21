@@ -1,5 +1,5 @@
-import Link from "next/link";
 import LeaderboardClient from "@/components/leaderboard/LeaderboardClient";
+import AuthAwareLink from "@/components/auth/AuthAwareLink";
 import { getLeaderboardData } from "@/lib/results";
 
 export default async function LeaderboardPage() {
@@ -14,9 +14,14 @@ export default async function LeaderboardPage() {
             Aggregated performance across all benchmark runs
           </p>
         </div>
-        <Link href="/arena" className="text-base text-text-muted hover:text-accent transition-colors">
+        <AuthAwareLink
+          href="/arena"
+          className="text-base text-text-muted hover:text-accent transition-colors"
+          signedInChildren="New Benchmark →"
+          signedOutChildren="Sign in to compete →"
+        >
           New Benchmark &rarr;
-        </Link>
+        </AuthAwareLink>
       </div>
 
       <LeaderboardClient data={data} />

@@ -4,16 +4,14 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
-import { useAuthActions } from "@convex-dev/auth/react";
 import { api } from "../../../convex/_generated/api";
 
 export default function AuthControls() {
   const pathname = usePathname();
   const { isAuthenticated, isLoading } = useConvexAuth();
-  const { signIn, signOut } = useAuthActions();
   const viewer = useQuery(api.app.currentViewer, isAuthenticated ? {} : "skip");
   const bootstrapViewer = useMutation(api.app.bootstrapViewer);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [bootstrapped, setBootstrapped] = useState(false);
 
   useEffect(() => {
@@ -37,34 +35,23 @@ export default function AuthControls() {
 
   if (!isAuthenticated) {
     return (
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => void signIn("github", { redirectTo: pathname })}
-          className="text-sm text-text-muted hover:text-text-primary transition-colors"
-        >
-          Sign in with GitHub
-        </button>
-      </div>
+      <Link
+        href={`/sign-in?redirect=${encodeURIComponent(pathname || "/")}`}
+        className="inline-flex items-center rounded-full border border-border/70 px-4 py-2 text-sm text-text-muted hover:text-text-primary hover:border-border transition-colors"
+      >
+        Sign In
+      </Link>
     );
   }
 
   return (
     <div className="flex items-center gap-3 text-sm">
       <Link
-        href="/settings"
-        className="text-text-muted hover:text-text-primary transition-colors"
+        href="/account"
+        className="inline-flex items-center rounded-full border border-border/70 px-4 py-2 text-sm text-text-muted hover:text-text-primary hover:border-border transition-colors"
       >
-        {viewer?.providerStatus.openrouterConfigured ? "Settings" : "Setup Keys"}
+        Account
       </Link>
-      <button
-        type="button"
-        onClick={() => void signOut()}
-        disabled={isPending}
-        className="text-text-muted hover:text-text-primary transition-colors disabled:opacity-50"
-      >
-        {viewer?.user.name ?? viewer?.user.email ?? "Sign out"}
-      </button>
     </div>
   );
 }

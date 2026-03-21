@@ -118,31 +118,44 @@ export function useBenchmarkSSE() {
         reasoningActivity: {},
       });
 
-      const response = await fetch("/api/benchmark", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          categoryId,
-          prompt,
-          selectedModelIds,
-          customModelIds,
-        }),
-      });
+      try {
+        const response = await fetch("/api/benchmark", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            categoryId,
+            prompt,
+            selectedModelIds,
+            customModelIds,
+          }),
+        });
 
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? `HTTP ${response.status}`);
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error ?? `HTTP ${response.status}`);
+        }
+
+        const payload = await response.json();
+        setState((prev) => ({
+          ...prev,
+          runId: payload.id,
+          result: payload,
+          status: payload.status ?? prev.status,
+          step: payload.currentStep ?? prev.step,
+          error: null,
+        }));
+        return payload.id as string;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to start benchmark";
+        setState((prev) => ({
+          ...prev,
+          isRunning: false,
+          status: null,
+          step: "",
+          error: message,
+        }));
+        return null;
       }
-
-      const payload = await response.json();
-      setState((prev) => ({
-        ...prev,
-        runId: payload.id,
-        result: payload,
-        status: payload.status ?? prev.status,
-        step: payload.currentStep ?? prev.step,
-      }));
-      return payload.id as string;
     },
     []
   );
@@ -165,26 +178,38 @@ export function useBenchmarkSSE() {
   const performAction = useCallback(
     async (path: string, body?: unknown) => {
       if (!state.runId) return null;
-      const response = await fetch(`/api/benchmark/${state.runId}/${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.error ?? `HTTP ${response.status}`);
+      try {
+        const response = await fetch(`/api/benchmark/${state.runId}/${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload.error ?? `HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        const nextRunId = payload?.id ?? state.runId;
+        setState((prev) => ({
+          ...prev,
+          result: payload ?? prev.result,
+          runId: nextRunId,
+          status: payload?.status ?? prev.status,
+          step: payload?.currentStep ?? prev.step,
+          error: null,
+          isRunning: payload?.status
+            ? ["queued", "generating", "critiquing", "revising", "voting"].includes(payload.status)
+            : prev.isRunning,
+        }));
+        return payload;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Run action failed";
+        setState((prev) => ({
+          ...prev,
+          error: message,
+        }));
+        return null;
       }
-      const payload = await response.json();
-      const nextRunId = payload?.id ?? state.runId;
-      setState((prev) => ({
-        ...prev,
-        result: payload ?? prev.result,
-        runId: nextRunId,
-        status: payload?.status ?? prev.status,
-        step: payload?.currentStep ?? prev.step,
-        isRunning: payload?.status ? ["queued", "generating", "critiquing", "revising", "voting"].includes(payload.status) : prev.isRunning,
-      }));
-      return payload;
     },
     [state.runId]
   );

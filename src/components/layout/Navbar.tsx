@@ -3,12 +3,18 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useConvexAuth } from "convex/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { clsx } from "clsx";
 import AuthControls from "@/components/auth/AuthControls";
 
-const navItems = [
-  { href: "/", label: "Home" },
+const publicNavItems = [
+  { href: "/", label: "Dashboard" },
+  { href: "/leaderboard", label: "Leaderboard" },
+];
+
+const privateNavItems = [
+  { href: "/", label: "Dashboard" },
   { href: "/arena", label: "Arena" },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/archive", label: "Archive" },
@@ -16,11 +22,13 @@ const navItems = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const { isAuthenticated } = useConvexAuth();
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [logoClicks, setLogoClicks] = useState(0);
   const [logoSpin, setLogoSpin] = useState(false);
   const clickTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const navItems = isAuthenticated ? privateNavItems : publicNavItems;
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);

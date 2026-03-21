@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { isAuthenticatedNextjs } from "@convex-dev/auth/nextjs/server";
 import BenchmarkDetailClient from "@/components/arena/BenchmarkDetailClient";
 import { fetchRun } from "@/lib/convex-server";
 
@@ -8,6 +10,11 @@ export default async function BenchmarkDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  if (!(await isAuthenticatedNextjs())) {
+    redirect(`/sign-in?redirect=${encodeURIComponent(`/arena/${id}`)}`);
+  }
+
   const run = await fetchRun(id);
 
   if (!run) {

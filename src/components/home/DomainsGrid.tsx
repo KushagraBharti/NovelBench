@@ -1,10 +1,10 @@
 "use client";
 
 import { useRef } from "react";
-import Link from "next/link";
 import { motion, useInView } from "framer-motion";
 import { categories } from "@/lib/categories";
 import { getCategoryIdentity, categoryOrder } from "@/utils/category-identity";
+import AuthAwareLink from "@/components/auth/AuthAwareLink";
 
 export default function DomainsGrid() {
   const ref = useRef(null);
@@ -34,7 +34,10 @@ export default function DomainsGrid() {
                 animate={isInView ? { opacity: 1 } : {}}
                 transition={{ duration: 0.4, delay: i * 0.06 }}
               >
-                <Link href={`/arena?category=${catId}`} className="block bg-bg-deep p-6 group h-full">
+                <AuthAwareLink
+                  href={`/arena?category=${catId}`}
+                  className="block bg-bg-deep p-6 group h-full"
+                >
                   <div className="flex items-start justify-between mb-4">
                     <span className="font-mono text-base text-text-muted">
                       {identity.number}
@@ -51,7 +54,7 @@ export default function DomainsGrid() {
                   <p className="text-base text-text-muted leading-relaxed">
                     {cat.description}
                   </p>
-                </Link>
+                </AuthAwareLink>
               </motion.div>
             );
           })}

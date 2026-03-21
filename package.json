@@ -9,6 +9,7 @@
     "lint": "oxlint src --deny-warnings",
     "test": "vitest run",
     "typecheck": "bunx next typegen && node scripts/ensure-next-types.mjs && bunx tsc --noEmit --incremental false",
+    "verify": "node scripts/verify-all.mjs",
     "import:legacy": "bun scripts/import-legacy-runs.mjs",
     "postinstall": "node scripts/fix-eslint-minimatch.mjs"
   },
