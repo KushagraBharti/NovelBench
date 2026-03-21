@@ -96,25 +96,44 @@ export default function ModelSelector({
       />
 
       {totalSelected > 0 ? (
-        <div className="mt-4 flex flex-wrap items-center gap-2 border-b border-border/70 pb-4">
-          {selectedCatalogModels.map((model) => (
-            <span
-              key={model.id}
-              className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-bg-surface px-3 py-1.5 text-xs text-text-primary"
-            >
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: model.color }} />
-              {model.name}
-            </span>
-          ))}
-          {customModelIds.map((modelId) => (
-            <span
-              key={modelId}
-              className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-bg-surface px-3 py-1.5 text-xs text-text-secondary"
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-              {modelId}
-            </span>
-          ))}
+        <div className="mt-4 border-b border-border/70 pb-4">
+          <p className="font-mono text-[11px] uppercase tracking-[0.24em] text-text-muted">
+            Active roster
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {selectedCatalogModels.map((model) => (
+              <div
+                key={model.id}
+                className="flex items-center justify-between gap-3 border-b border-border/40 pb-2 text-sm text-text-primary"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ backgroundColor: model.color }} />
+                  <span className="truncate">{model.name}</span>
+                </div>
+                <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-text-muted">
+                  {model.lab}
+                </span>
+              </div>
+            ))}
+            {customModelIds.map((modelId) => (
+              <div
+                key={modelId}
+                className="flex items-center justify-between gap-3 border-b border-border/40 pb-2 text-sm text-text-secondary"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-accent" />
+                  <span className="truncate">{modelId}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeCustomModel(modelId)}
+                  className="font-mono text-[11px] uppercase tracking-[0.18em] text-text-muted transition-colors hover:text-text-primary"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -155,13 +174,11 @@ export default function ModelSelector({
                 </div>
                 <span
                   className={clsx(
-                    "flex-shrink-0 rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.22em] transition-colors",
-                    selected
-                      ? "border-accent/40 bg-accent/10 text-text-primary"
-                      : "border-border/70 text-text-muted/50",
+                    "flex-shrink-0 font-mono text-[11px] uppercase tracking-[0.22em] transition-colors",
+                    selected ? "text-accent" : "text-text-muted/50",
                   )}
                 >
-                  {selected ? "Selected" : "Available"}
+                  {selected ? "In roster" : "Add"}
                 </span>
               </div>
             </button>
@@ -192,25 +209,11 @@ export default function ModelSelector({
             type="button"
             onClick={addCustomModel}
             disabled={disabled || !isValidOpenRouterModelId(customModelInput) || totalSelected >= MODEL_SELECTION_LIMITS.max}
-            className="rounded-full border border-border/70 px-4 py-2 text-sm text-text-secondary transition-colors hover:border-border hover:text-text-primary disabled:opacity-40"
+            className="border-b border-border/70 px-0 py-2 text-sm uppercase tracking-[0.18em] text-text-secondary transition-colors hover:border-accent hover:text-text-primary disabled:opacity-40"
           >
             Add
           </button>
         </div>
-        {customModelIds.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            {customModelIds.map((modelId) => (
-              <button
-                key={modelId}
-                type="button"
-                onClick={() => removeCustomModel(modelId)}
-                className="rounded-full border border-border/70 px-3 py-1.5 text-xs text-text-secondary transition-colors hover:border-border hover:text-text-primary"
-              >
-                {modelId} ×
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

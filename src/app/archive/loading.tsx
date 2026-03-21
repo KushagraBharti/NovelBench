@@ -1,5 +1,5 @@
 import RouteLoading from "@/components/ui/RouteLoading";
 
 export default function Loading() {
-  return <RouteLoading title="Loading archive" subtitle="Fetching benchmark history and summaries." />;
+  return <RouteLoading title="Loading archive" subtitle="Fetching benchmark history." />;
 }

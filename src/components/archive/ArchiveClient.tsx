@@ -117,7 +117,7 @@ export default function ArchiveClient({ runs, nextCursor, hasMore, filters }: Ar
         <div className="mt-4 flex flex-wrap items-center gap-4">
           <button
             type="submit"
-            className="inline-flex items-center rounded-full border border-border/70 px-5 py-2 text-sm text-text-primary transition-colors hover:border-accent hover:text-accent"
+            className="border-b border-border/70 px-0 py-2 text-sm uppercase tracking-[0.18em] text-text-primary transition-colors hover:border-accent hover:text-accent"
           >
             Apply filters
           </button>
@@ -128,14 +128,14 @@ export default function ArchiveClient({ runs, nextCursor, hasMore, filters }: Ar
       </form>
 
       {categories.length > 1 && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border/70 pb-4">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-border/70 pb-4">
           <button
             onClick={() => setFilterCategory("all")}
             className={clsx(
-              "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm transition-colors",
+              "inline-flex items-center gap-2 border-b px-0 py-1 text-sm transition-colors",
               filterCategory === "all"
-                ? "border-accent/50 bg-accent/10 text-text-primary"
-                : "border-border/70 text-text-muted hover:border-border hover:text-text-primary",
+                ? "border-accent text-text-primary"
+                : "border-transparent text-text-muted hover:border-border/60 hover:text-text-primary",
             )}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-accent" />
@@ -149,16 +149,12 @@ export default function ArchiveClient({ runs, nextCursor, hasMore, filters }: Ar
                 key={catId}
                 onClick={() => setFilterCategory(catId)}
                 className={clsx(
-                  "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm capitalize transition-colors",
+                  "inline-flex items-center gap-2 border-b px-0 py-1 text-sm capitalize transition-colors",
                   filterCategory === catId
-                    ? "border-transparent bg-bg-surface text-text-primary"
-                    : "border-border/70 text-text-muted hover:border-border hover:text-text-primary",
+                    ? "text-text-primary"
+                    : "border-transparent text-text-muted hover:border-border/60 hover:text-text-primary",
                 )}
-                style={
-                  filterCategory === catId
-                    ? { boxShadow: `inset 0 0 0 1px ${identity.color}55` }
-                    : undefined
-                }
+                style={filterCategory === catId ? { borderColor: `${identity.color}AA` } : undefined}
               >
                 <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: identity.color }} />
                 {catId} <span className="text-text-muted">({count})</span>
