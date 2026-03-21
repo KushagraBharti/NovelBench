@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { clsx } from "clsx";
@@ -33,16 +33,7 @@ function buildArchiveHref(args: ArchiveClientProps["filters"] & { cursor?: strin
 }
 
 export default function ArchiveClient({ runs, nextCursor, hasMore, filters }: ArchiveClientProps) {
-  const [filterCategory, setFilterCategory] = useState<string>(filters.categoryId);
   const categories = useMemo(() => Array.from(new Set(runs.map((run) => run.categoryId))).sort(), [runs]);
-  const filteredRuns = useMemo(
-    () => (filterCategory === "all" ? runs : runs.filter((run) => run.categoryId === filterCategory)),
-    [filterCategory, runs],
-  );
-
-  useEffect(() => {
-    setFilterCategory(filters.categoryId);
-  }, [filters.categoryId]);
 
   if (runs.length === 0) {
     return (
@@ -132,43 +123,43 @@ export default function ArchiveClient({ runs, nextCursor, hasMore, filters }: Ar
 
       {categories.length > 1 && (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-b border-border/70 pb-4">
-          <button
-            onClick={() => setFilterCategory("all")}
+          <Link
+            href={buildArchiveHref({ ...filters, categoryId: "all", cursor: null })}
             className={clsx(
               "inline-flex items-center gap-2 border-b px-0 py-1 text-sm transition-colors",
-              filterCategory === "all"
+              filters.categoryId === "all"
                 ? "border-accent text-text-primary"
                 : "border-transparent text-text-muted hover:border-border/60 hover:text-text-primary",
             )}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-accent" />
             All runs ({runs.length})
-          </button>
+          </Link>
           {categories.map((catId) => {
             const identity = getCategoryIdentity(catId);
             const count = runs.filter((run) => run.categoryId === catId).length;
             return (
-              <button
+              <Link
                 key={catId}
-                onClick={() => setFilterCategory(catId)}
+                href={buildArchiveHref({ ...filters, categoryId: catId, cursor: null })}
                 className={clsx(
                   "inline-flex items-center gap-2 border-b px-0 py-1 text-sm capitalize transition-colors",
-                  filterCategory === catId
+                  filters.categoryId === catId
                     ? "text-text-primary"
                     : "border-transparent text-text-muted hover:border-border/60 hover:text-text-primary",
                 )}
-                style={filterCategory === catId ? { borderColor: `${identity.color}AA` } : undefined}
+                style={filters.categoryId === catId ? { borderColor: `${identity.color}AA` } : undefined}
               >
                 <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: identity.color }} />
                 {catId} <span className="text-text-muted">({count})</span>
-              </button>
+              </Link>
             );
           })}
         </div>
       )}
 
       <div className="border-t border-border/70">
-        {filteredRuns.map((run, index) => {
+        {runs.map((run, index) => {
           const identity = getCategoryIdentity(run.categoryId);
           return (
             <motion.div

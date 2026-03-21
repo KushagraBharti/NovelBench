@@ -94,7 +94,10 @@ export async function fetchArchiveSummaries(): Promise<BenchmarkRunSummary[]> {
 }
 
 export async function fetchLeaderboardData(): Promise<LeaderboardData> {
-  const global = await fetchQuery(api.leaderboards.get, {}, await authOptions());
+  const [global, archiveSummaries] = await Promise.all([
+    fetchQuery(api.leaderboards.get, {}, await authOptions()),
+    fetchArchiveSummaries(),
+  ]);
   const byCategoryEntries = await Promise.all(
     categories.map(async (category) => {
       const snapshot = await fetchQuery(
@@ -102,13 +105,35 @@ export async function fetchLeaderboardData(): Promise<LeaderboardData> {
         { categoryId: category.id },
         await authOptions(),
       );
-      return [category.id, snapshot.entries] as const;
+      return [
+        category.id,
+        {
+          entries: snapshot.entries,
+          totals: snapshot.totals,
+        },
+      ] as const;
     }),
   );
+  const categoryTotals = archiveSummaries
+    .filter((run) => run.status === "complete" || run.status === "partial")
+    .reduce<LeaderboardData["categoryTotals"]>((acc, run) => {
+      const current = acc[run.categoryId] ?? {
+        runs: 0,
+        ideas: 0,
+        critiques: 0,
+        completedModels: 0,
+      };
+      current.runs += 1;
+      acc[run.categoryId] = current;
+      return acc;
+    }, {});
 
   return {
     global: global.entries,
-    byCategory: Object.fromEntries(byCategoryEntries),
+    byCategory: Object.fromEntries(
+      byCategoryEntries.map(([categoryId, snapshot]) => [categoryId, snapshot.entries]),
+    ),
+    categoryTotals,
     totals: global.totals,
   };
 }

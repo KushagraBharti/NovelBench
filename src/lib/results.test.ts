@@ -97,20 +97,31 @@ describe("results loaders", () => {
         {
           modelId: "b",
           modelName: "B",
-          appearances: 1,
           wins: 1,
-          averageRank: 1,
-          averageScore: 9,
-          categoriesWon: ["venture"],
+          totalRuns: 1,
+          compositeScore: 88,
+          averageFinalScore: 9,
+          averageFinalRank: 1,
+          averageCritiqueScore: 8,
+          averageFinishPercentile: 1,
         },
       ],
       byCategory: {
         venture: [],
       },
+      categoryTotals: {
+        venture: {
+          runs: 1,
+          ideas: 4,
+          critiques: 1,
+          completedModels: 2,
+        },
+      },
       totals: {
         ideas: 4,
         critiques: 1,
         runs: 1,
+        completedModels: 2,
       },
     });
 

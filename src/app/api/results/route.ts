@@ -13,7 +13,6 @@ export async function GET(request: NextRequest) {
     numItems: Number(searchParams.get("limit") ?? 25),
     createdAfter: from ? Date.parse(`${from}T00:00:00.000Z`) : undefined,
     createdBefore: to ? Date.parse(`${to}T23:59:59.999Z`) : undefined,
-    visibility: "public_full",
   });
   return Response.json(page);
 }

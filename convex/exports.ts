@@ -42,7 +42,9 @@ export const listByRun = query({
     if (!run) {
       throw new ConvexError("Run not found");
     }
-    await requireProjectAccess(ctx, run.projectId, "viewer");
+    if (run.visibility !== "public" && run.visibility !== "public_full") {
+      await requireProjectAccess(ctx, run.projectId, "viewer");
+    }
 
     const exports = await ctx.db
       .query("exports")

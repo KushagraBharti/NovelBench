@@ -407,6 +407,15 @@ export interface AggregatedScore {
 export interface LeaderboardData {
   global: LeaderboardEntry[];
   byCategory: Record<string, LeaderboardEntry[]>;
+  categoryTotals: Record<
+    string,
+    {
+      runs: number;
+      ideas: number;
+      critiques: number;
+      completedModels: number;
+    }
+  >;
   totals: {
     runs: number;
     ideas: number;

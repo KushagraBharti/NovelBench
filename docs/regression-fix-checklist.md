@@ -59,3 +59,10 @@ This file tracks the concrete regressions identified after the Convex migration 
 - Run `bun run build`.
 - Browser-test sign-in, arena run start, live traces, archive list, archive detail, leaderboard, and exports.
 - Sync production after verification and confirm the deployed app matches the checked-in code.
+
+## 9. Follow-up Regressions
+
+- Remove OCC conflicts caused by live trace mutations repeatedly patching the hot `runs` document.
+- Fix public archive detail so older public runs do not crash when export queries execute.
+- Replace mixed client-side/server-side archive filtering with one consistent server-backed flow.
+- Fix leaderboard category counts so they reflect category run totals, not the top model's run count.

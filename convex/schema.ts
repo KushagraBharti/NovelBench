@@ -367,7 +367,6 @@ export default defineSchema({
     .searchIndex("search_prompt", {
       searchField: "promptSearchText",
       filterFields: ["organizationId", "projectId", "categoryId", "status", "visibility"],
-      staged: true,
     }),
 
   leaderboardSnapshots: defineTable({

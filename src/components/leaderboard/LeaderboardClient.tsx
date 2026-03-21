@@ -29,7 +29,7 @@ export default function LeaderboardClient({ data }: { data: LeaderboardData }) {
   );
 
   function getCategoryRuns(categoryId: string): number {
-    return data.byCategory[categoryId]?.[0]?.totalRuns ?? 0;
+    return data.categoryTotals[categoryId]?.runs ?? 0;
   }
 
   function queueExport(format: "json" | "csv") {

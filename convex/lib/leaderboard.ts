@@ -164,16 +164,34 @@ export function buildLeaderboardEntries(runs: BenchmarkRun[]): LeaderboardEntry[
 export function buildLeaderboardData(runs: BenchmarkRun[]): LeaderboardData {
   const completedRuns = runs.filter((run) => run.status === "complete" || run.status === "partial");
   const byCategory: Record<string, LeaderboardEntry[]> = {};
+  const categoryTotals: LeaderboardData["categoryTotals"] = {};
 
   for (const categoryId of new Set(completedRuns.map((run) => run.categoryId))) {
-    byCategory[categoryId] = buildLeaderboardEntries(
-      completedRuns.filter((run) => run.categoryId === categoryId),
-    );
+    const categoryRuns = completedRuns.filter((run) => run.categoryId === categoryId);
+    byCategory[categoryId] = buildLeaderboardEntries(categoryRuns);
+    categoryTotals[categoryId] = {
+      runs: categoryRuns.length,
+      ideas: categoryRuns.reduce((sum, run) => sum + run.ideas.length + run.revisedIdeas.length, 0),
+      critiques: categoryRuns.reduce(
+        (sum, run) =>
+          sum +
+          run.critiqueVotes.reduce((voteSum, vote) => voteSum + vote.critiques.length, 0) +
+          run.humanCritiques.length,
+        0,
+      ),
+      completedModels: categoryRuns.reduce(
+        (sum, run) =>
+          sum +
+          Object.values(run.modelStates).filter((state) => state.status === "complete").length,
+        0,
+      ),
+    };
   }
 
   return {
     global: buildLeaderboardEntries(completedRuns),
     byCategory,
+    categoryTotals,
     totals: {
       runs: runs.length,
       ideas: runs.reduce((sum, run) => sum + run.ideas.length + run.revisedIdeas.length, 0),

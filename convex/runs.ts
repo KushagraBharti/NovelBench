@@ -338,56 +338,34 @@ async function hydrateRun(
   return runDocsToBenchmarkRun({ run, participants, events });
 }
 
-export const list = query({
+async function collectVisibleRunSummariesPage(
+  ctx: QueryCtx,
   args: {
-    paginationOpts: paginationOptsValidator,
-    ...runListFilterArgs,
+    paginationOpts: { numItems: number; cursor: string | null };
+    categoryId?: string;
+    status?: string;
+    visibility?: Doc<"runs">["visibility"];
+    createdAfter?: number;
+    createdBefore?: number;
   },
-  returns: v.any(),
-  handler: async (ctx, args) => {
-    const viewerUserId = await getAuthUserId(ctx);
-    let pageResult;
+  fetchPage: (paginationOpts: { numItems: number; cursor: string | null }) => Promise<{
+    page: Doc<"runs">[];
+    isDone: boolean;
+    continueCursor: string | null;
+  }>,
+) {
+  const viewerUserId = await getAuthUserId(ctx);
+  const results: BenchmarkRunSummary[] = [];
+  let cursor = args.paginationOpts.cursor;
+  let isDone = false;
 
-    if (args.projectId) {
-      pageResult = await ctx.db
-        .query("runs")
-        .withIndex("by_project_and_created_at", (q) => q.eq("projectId", args.projectId!))
-        .order("desc")
-        .paginate(args.paginationOpts);
-    } else if (args.organizationId) {
-      pageResult = await ctx.db
-        .query("runs")
-        .withIndex("by_org_and_created_at", (q) => q.eq("organizationId", args.organizationId!))
-        .order("desc")
-        .paginate(args.paginationOpts);
-    } else if (args.visibility) {
-      pageResult = await ctx.db
-        .query("runs")
-        .withIndex("by_visibility_and_created_at", (q) => q.eq("visibility", args.visibility!))
-        .order("desc")
-        .paginate(args.paginationOpts);
-    } else if (args.status) {
-      pageResult = await ctx.db
-        .query("runs")
-        .withIndex("by_status_and_created_at", (q) => q.eq("status", args.status! as any))
-        .order("desc")
-        .paginate(args.paginationOpts);
-    } else if (args.categoryId) {
-      pageResult = await ctx.db
-        .query("runs")
-        .withIndex("by_category_and_created_at", (q) => q.eq("categoryId", args.categoryId!))
-        .order("desc")
-        .paginate(args.paginationOpts);
-    } else {
-      pageResult = await ctx.db
-        .query("runs")
-        .withIndex("by_created_at")
-        .order("desc")
-        .paginate(args.paginationOpts);
-    }
+  while (results.length < args.paginationOpts.numItems && !isDone) {
+    const pageResult = await fetchPage({
+      numItems: args.paginationOpts.numItems,
+      cursor,
+    });
 
-    const visibleRuns: BenchmarkRunSummary[] = [];
-    for (const run of pageResult.page as Doc<"runs">[]) {
+    for (const run of pageResult.page) {
       if (args.visibility && run.visibility !== args.visibility) {
         continue;
       }
@@ -400,6 +378,7 @@ export const list = query({
       if (!matchesCreatedAtRange(run.createdAt, args.createdAfter, args.createdBefore)) {
         continue;
       }
+
       const membership = viewerUserId
         ? await getProjectMembership(ctx, viewerUserId, run.projectId)
         : null;
@@ -409,14 +388,84 @@ export const list = query({
       if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
         continue;
       }
-      visibleRuns.push(runDocToSummary(run));
+
+      results.push(runDocToSummary(run));
+      if (results.length >= args.paginationOpts.numItems) {
+        break;
+      }
     }
 
-    return {
-      page: visibleRuns,
-      isDone: pageResult.isDone,
-      continueCursor: pageResult.continueCursor,
-    };
+    cursor = pageResult.continueCursor;
+    isDone = pageResult.isDone;
+  }
+
+  return {
+    page: results,
+    isDone,
+    continueCursor: cursor,
+  };
+}
+
+export const list = query({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    ...runListFilterArgs,
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    return await collectVisibleRunSummariesPage(
+      ctx,
+      {
+        paginationOpts: args.paginationOpts,
+        categoryId: args.categoryId,
+        status: args.status,
+        visibility: args.visibility,
+        createdAfter: args.createdAfter,
+        createdBefore: args.createdBefore,
+      },
+      async (paginationOpts) => {
+        if (args.projectId) {
+          return await ctx.db
+            .query("runs")
+            .withIndex("by_project_and_created_at", (q) => q.eq("projectId", args.projectId!))
+            .order("desc")
+            .paginate(paginationOpts);
+        }
+        if (args.organizationId) {
+          return await ctx.db
+            .query("runs")
+            .withIndex("by_org_and_created_at", (q) => q.eq("organizationId", args.organizationId!))
+            .order("desc")
+            .paginate(paginationOpts);
+        }
+        if (args.visibility) {
+          return await ctx.db
+            .query("runs")
+            .withIndex("by_visibility_and_created_at", (q) => q.eq("visibility", args.visibility!))
+            .order("desc")
+            .paginate(paginationOpts);
+        }
+        if (args.status) {
+          return await ctx.db
+            .query("runs")
+            .withIndex("by_status_and_created_at", (q) => q.eq("status", args.status! as any))
+            .order("desc")
+            .paginate(paginationOpts);
+        }
+        if (args.categoryId) {
+          return await ctx.db
+            .query("runs")
+            .withIndex("by_category_and_created_at", (q) => q.eq("categoryId", args.categoryId!))
+            .order("desc")
+            .paginate(paginationOpts);
+        }
+        return await ctx.db
+          .query("runs")
+          .withIndex("by_created_at")
+          .order("desc")
+          .paginate(paginationOpts);
+      },
+    );
   },
 });
 
@@ -523,9 +572,17 @@ export const search = query({
   },
   returns: v.any(),
   handler: async (ctx, args) => {
-    const limit = Math.min(args.limit ?? args.paginationOpts?.numItems ?? 20, 50);
-    const viewerUserId = await getAuthUserId(ctx);
+    const paginationOpts = args.paginationOpts
+      ? {
+          ...args.paginationOpts,
+          numItems: Math.min(Math.max(args.paginationOpts.numItems, 1), 50),
+        }
+      : {
+          numItems: Math.min(args.limit ?? 20, 50),
+          cursor: null,
+        };
 
+    const normalizedQuery = args.query.trim().toLowerCase();
     const searchQuery = ((ctx.db.query("runSearchDocs") as any)
       .withSearchIndex("search_prompt", (q: any) => {
         let next = q.search("promptSearchText", args.query);
@@ -547,45 +604,106 @@ export const search = query({
         return next;
       })) as any;
 
-    const matchesPage = args.paginationOpts
-      ? await searchQuery.paginate({
-          ...args.paginationOpts,
-          numItems: Math.min(Math.max(args.paginationOpts.numItems, 1), 50),
-        })
-      : {
-          page: await searchQuery.take(limit),
-          isDone: true,
-          continueCursor: null,
-        };
+    const viewerUserId = await getAuthUserId(ctx);
     const results: BenchmarkRunSummary[] = [];
+    let cursor = paginationOpts.cursor;
+    let isDone = false;
 
-    for (const match of matchesPage.page as Doc<"runSearchDocs">[]) {
-      const run = await ctx.db.get(match.runId);
-      if (!run) {
-        continue;
+    try {
+      while (results.length < paginationOpts.numItems && !isDone) {
+        const matchesPage = await searchQuery.paginate({
+          numItems: paginationOpts.numItems,
+          cursor,
+        });
+
+        for (const match of matchesPage.page as Doc<"runSearchDocs">[]) {
+          const run = await ctx.db.get(match.runId);
+          if (!run) {
+            continue;
+          }
+          if (args.visibility && run.visibility !== args.visibility) {
+            continue;
+          }
+          if (!matchesCreatedAtRange(run.createdAt, args.createdAfter, args.createdBefore)) {
+            continue;
+          }
+          const membership = viewerUserId
+            ? await getProjectMembership(ctx, viewerUserId, run.projectId)
+            : null;
+          const organizationMembership = viewerUserId
+            ? await getOrganizationMembership(ctx, viewerUserId, run.organizationId)
+            : null;
+          if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
+            continue;
+          }
+          results.push(runDocToSummary(run));
+          if (results.length >= paginationOpts.numItems) {
+            break;
+          }
+        }
+
+        cursor = matchesPage.continueCursor;
+        isDone = matchesPage.isDone;
       }
-      if (args.visibility && run.visibility !== args.visibility) {
-        continue;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("is currently staged and not available to query")) {
+        throw error;
       }
-      if (!matchesCreatedAtRange(run.createdAt, args.createdAfter, args.createdBefore)) {
-        continue;
-      }
-      const membership = viewerUserId
-        ? await getProjectMembership(ctx, viewerUserId, run.projectId)
-        : null;
-      const organizationMembership = viewerUserId
-        ? await getOrganizationMembership(ctx, viewerUserId, run.organizationId)
-        : null;
-      if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
-        continue;
-      }
-      results.push(runDocToSummary(run));
+
+      const fallback = await collectVisibleRunSummariesPage(
+        ctx,
+        {
+          paginationOpts,
+          categoryId: args.categoryId,
+          status: args.status,
+          visibility: args.visibility,
+          createdAfter: args.createdAfter,
+          createdBefore: args.createdBefore,
+        },
+        async (pageArgs) => {
+          let baseQuery: any;
+          if (args.projectId) {
+            baseQuery = ctx.db
+              .query("runs")
+              .withIndex("by_project_and_created_at", (q) => q.eq("projectId", args.projectId!));
+          } else if (args.organizationId) {
+            baseQuery = ctx.db
+              .query("runs")
+              .withIndex("by_org_and_created_at", (q) => q.eq("organizationId", args.organizationId!));
+          } else if (args.visibility) {
+            baseQuery = ctx.db
+              .query("runs")
+              .withIndex("by_visibility_and_created_at", (q) => q.eq("visibility", args.visibility!));
+          } else if (args.status) {
+            baseQuery = ctx.db
+              .query("runs")
+              .withIndex("by_status_and_created_at", (q) => q.eq("status", args.status! as any));
+          } else if (args.categoryId) {
+            baseQuery = ctx.db
+              .query("runs")
+              .withIndex("by_category_and_created_at", (q) => q.eq("categoryId", args.categoryId!));
+          } else {
+            baseQuery = ctx.db.query("runs").withIndex("by_created_at");
+          }
+
+          const page = await baseQuery.order("desc").paginate(pageArgs);
+          return {
+            ...page,
+            page: (page.page as Doc<"runs">[]).filter((run) =>
+              `${run.prompt} ${run.promptExcerpt}`.toLowerCase().includes(normalizedQuery),
+            ),
+          };
+        },
+      );
+
+      return fallback;
     }
 
     return {
       page: results,
-      isDone: matchesPage.isDone,
-      continueCursor: matchesPage.continueCursor,
+      isDone,
+      continueCursor: cursor,
     };
   },
 });
@@ -1293,9 +1411,6 @@ export const recordWebTraceInternal = internalMutation({
       });
     }
 
-    await ctx.db.patch(args.runId, {
-      updatedAt: args.createdAt,
-    });
     return null;
   },
 });
@@ -1319,7 +1434,6 @@ export const appendLiveTokenEventInternal = internalMutation({
       payload: { chunk: args.chunk },
       createdAt: args.createdAt,
     });
-    await ctx.db.patch(args.runId, { updatedAt: args.createdAt });
     return null;
   },
 });
@@ -1359,7 +1473,6 @@ export const appendToolCallEventInternal = internalMutation({
       },
       createdAt: args.createdAt,
     });
-    await ctx.db.patch(args.runId, { updatedAt: args.createdAt });
     return null;
   },
 });
@@ -1400,7 +1513,6 @@ export const appendReasoningDetailsInternal = internalMutation({
         createdAt: args.createdAt,
       });
     }
-    await ctx.db.patch(args.runId, { updatedAt: args.createdAt });
     return null;
   },
 });

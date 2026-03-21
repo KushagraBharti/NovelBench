@@ -36,6 +36,7 @@ export const get = query({
     if (!snapshot) {
       return {
         entries: [],
+        categoryTotals: {},
         totals: {
           runs: 0,
           ideas: 0,
@@ -47,6 +48,9 @@ export const get = query({
     }
     return {
       entries: snapshot.entries,
+      categoryTotals: snapshot.scopeValue
+        ? { [snapshot.scopeValue]: snapshot.totals }
+        : {},
       totals: snapshot.totals,
       updatedAt: snapshot.updatedAt,
     };
@@ -95,12 +99,24 @@ export const rebuildSnapshotsInternal = internalMutation({
     const leaderboard = buildLeaderboardData(hydrated);
     const now = Date.now();
     const keys = [
-      { snapshotKey: "global", scopeType: "global" as const, scopeValue: undefined, entries: leaderboard.global },
+      {
+        snapshotKey: "global",
+        scopeType: "global" as const,
+        scopeValue: undefined,
+        entries: leaderboard.global,
+        totals: leaderboard.totals,
+      },
       ...Object.entries(leaderboard.byCategory).map(([categoryId, entries]) => ({
         snapshotKey: `category:${categoryId}`,
         scopeType: "category" as const,
         scopeValue: categoryId,
         entries,
+        totals: leaderboard.categoryTotals[categoryId] ?? {
+          runs: 0,
+          ideas: 0,
+          critiques: 0,
+          completedModels: 0,
+        },
       })),
     ];
 
@@ -123,7 +139,7 @@ export const rebuildSnapshotsInternal = internalMutation({
         scopeType: entry.scopeType,
         scopeValue: entry.scopeValue,
         entries: entry.entries,
-        totals: leaderboard.totals,
+        totals: entry.totals,
         updatedAt: now,
       };
       if (existing) {
