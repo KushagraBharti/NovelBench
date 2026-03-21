@@ -226,3 +226,43 @@ export const updateVisibility = mutation({
     return null;
   },
 });
+
+export const updateMemberRole = mutation({
+  args: {
+    membershipId: v.id("projectMembers"),
+    role: v.union(v.literal("editor"), v.literal("viewer")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const membership = await ctx.db.get(args.membershipId);
+    if (!membership) {
+      throw new ConvexError("Project membership not found");
+    }
+    const project = await ctx.db.get(membership.projectId);
+    if (!project) {
+      throw new ConvexError("Project not found");
+    }
+    const { user } = await requireOrganizationAdminAccess(ctx, project.organizationId);
+    const memberUser = await ctx.db.get(membership.userId);
+
+    await ctx.db.patch(membership._id, {
+      role: args.role,
+    });
+    await ctx.db.insert("auditLogs", {
+      actorUserId: user._id,
+      organizationId: project.organizationId,
+      projectId: project._id,
+      action: "project.member_role_updated",
+      resourceType: "project",
+      resourceId: String(project._id),
+      metadata: {
+        membershipId: membership._id,
+        email: memberUser?.email,
+        role: args.role,
+      },
+      createdAt: Date.now(),
+    });
+
+    return null;
+  },
+});

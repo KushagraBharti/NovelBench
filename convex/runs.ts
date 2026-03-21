@@ -25,6 +25,13 @@ import {
   runDocsToBenchmarkRun,
 } from "./lib/runHelpers";
 import {
+  createQueuedJob,
+  finalizeJob,
+  JOB_STATUSES,
+  JOB_TYPES,
+  startJobAttempt,
+} from "./lib/jobs";
+import {
   benchmarkStatusValidator,
   checkpointStageValidator,
   DEFAULT_RUN_RESERVE_USD_PER_MODEL,
@@ -406,6 +413,114 @@ async function collectVisibleRunSummariesPage(
   };
 }
 
+function runSummaryFromSearchDoc(
+  searchDoc: Doc<"runSearchDocs">,
+  run: Doc<"runs">,
+): BenchmarkRunSummary {
+  return {
+    id: searchDoc.runId,
+    categoryId: searchDoc.categoryId,
+    prompt: searchDoc.promptExcerpt,
+    timestamp: new Date(searchDoc.createdAt).toISOString(),
+    updatedAt: new Date(run.updatedAt).toISOString(),
+    status: searchDoc.status,
+    modelCount: run.participantCount,
+    completedModelCount: run.completedParticipantCount,
+    failedModelCount: run.failedParticipantCount,
+  };
+}
+
+async function recordResearchPreflightJob(
+  ctx: MutationCtx,
+  args: {
+    runId: Id<"runs">;
+    organizationId: Id<"organizations">;
+    projectId: Id<"projects">;
+    createdByUserId: Id<"users">;
+    researchEnabled: boolean;
+    exaConfigured: boolean;
+  },
+) {
+  const now = Date.now();
+  const jobId = await createQueuedJob(ctx, {
+    organizationId: args.organizationId,
+    projectId: args.projectId,
+    runId: args.runId,
+    jobType: JOB_TYPES.researchPreflight,
+    idempotencyKey: `${args.runId}:research-preflight`,
+    maxAttempts: 1,
+    deadlineAt: now + 60_000,
+    createdByUserId: args.createdByUserId,
+    metadata: {
+      researchEnabled: args.researchEnabled,
+      exaConfigured: args.exaConfigured,
+    },
+  });
+  await startJobAttempt(ctx, {
+    jobId,
+    startedAt: now,
+    metadata: {
+      researchEnabled: args.researchEnabled,
+      exaConfigured: args.exaConfigured,
+    },
+  });
+  await finalizeJob(ctx, {
+    jobId,
+    status: JOB_STATUSES.complete,
+    completedAt: now,
+    error:
+      args.researchEnabled && !args.exaConfigured
+        ? "Research enabled but Exa is not configured; benchmark stages will continue without search."
+        : undefined,
+  });
+}
+
+async function recordValidationRepairJob(
+  ctx: MutationCtx,
+  args: {
+    run: Doc<"runs">;
+    createdAt: number;
+    reason: string;
+  },
+) {
+  const idempotencyKey = `${args.run._id}:validation-repair`;
+  const existing = await ctx.db
+    .query("jobs")
+    .withIndex("by_idempotency_key", (q) => q.eq("idempotencyKey", idempotencyKey))
+    .unique();
+  if (existing) {
+    return;
+  }
+
+  const jobId = await createQueuedJob(ctx, {
+    organizationId: args.run.organizationId,
+    projectId: args.run.projectId,
+    runId: args.run._id,
+    jobType: JOB_TYPES.validationRunRepair,
+    idempotencyKey,
+    maxAttempts: 1,
+    deadlineAt: args.createdAt + 5 * 60_000,
+    createdByUserId: args.run.ownerUserId,
+    metadata: {
+      recommendation: "restart_run",
+    },
+  });
+  await startJobAttempt(ctx, {
+    jobId,
+    startedAt: args.createdAt,
+    metadata: {
+      reason: args.reason,
+    },
+  });
+  await finalizeJob(ctx, {
+    jobId,
+    status: JOB_STATUSES.deadLettered,
+    completedAt: args.createdAt,
+    error: args.reason,
+    deadLetterReason: "Run repair requires a manual restart with the same prompt and model set.",
+  });
+}
+
 export const list = query({
   args: {
     paginationOpts: paginationOptsValidator,
@@ -413,59 +528,61 @@ export const list = query({
   },
   returns: v.any(),
   handler: async (ctx, args) => {
-    return await collectVisibleRunSummariesPage(
-      ctx,
-      {
-        paginationOpts: args.paginationOpts,
-        categoryId: args.categoryId,
-        status: args.status,
-        visibility: args.visibility,
-        createdAfter: args.createdAfter,
-        createdBefore: args.createdBefore,
-      },
-      async (paginationOpts) => {
-        if (args.projectId) {
-          return await ctx.db
-            .query("runs")
-            .withIndex("by_project_and_created_at", (q) => q.eq("projectId", args.projectId!))
-            .order("desc")
-            .paginate(paginationOpts);
-        }
-        if (args.organizationId) {
-          return await ctx.db
-            .query("runs")
-            .withIndex("by_org_and_created_at", (q) => q.eq("organizationId", args.organizationId!))
-            .order("desc")
-            .paginate(paginationOpts);
-        }
-        if (args.visibility) {
-          return await ctx.db
-            .query("runs")
-            .withIndex("by_visibility_and_created_at", (q) => q.eq("visibility", args.visibility!))
-            .order("desc")
-            .paginate(paginationOpts);
-        }
-        if (args.status) {
-          return await ctx.db
-            .query("runs")
-            .withIndex("by_status_and_created_at", (q) => q.eq("status", args.status! as any))
-            .order("desc")
-            .paginate(paginationOpts);
-        }
-        if (args.categoryId) {
-          return await ctx.db
-            .query("runs")
-            .withIndex("by_category_and_created_at", (q) => q.eq("categoryId", args.categoryId!))
-            .order("desc")
-            .paginate(paginationOpts);
-        }
-        return await ctx.db
-          .query("runs")
-          .withIndex("by_created_at")
-          .order("desc")
-          .paginate(paginationOpts);
-      },
+    let baseQuery: any;
+    if (args.projectId) {
+      baseQuery = ctx.db
+        .query("runSearchDocs")
+        .withIndex("by_project_and_created_at", (q) => q.eq("projectId", args.projectId!));
+    } else if (args.organizationId) {
+      baseQuery = ctx.db
+        .query("runSearchDocs")
+        .withIndex("by_org_and_created_at", (q) => q.eq("organizationId", args.organizationId!));
+    } else if (args.visibility) {
+      baseQuery = ctx.db
+        .query("runSearchDocs")
+        .withIndex("by_visibility_and_created_at", (q) => q.eq("visibility", args.visibility!));
+    } else if (args.status) {
+      baseQuery = ctx.db
+        .query("runSearchDocs")
+        .withIndex("by_status_and_created_at", (q) => q.eq("status", args.status! as any));
+    } else if (args.categoryId) {
+      baseQuery = ctx.db
+        .query("runSearchDocs")
+        .withIndex("by_category_and_created_at", (q) => q.eq("categoryId", args.categoryId!));
+    } else {
+      baseQuery = ctx.db.query("runSearchDocs").withIndex("by_created_at");
+    }
+
+    const page = await baseQuery.order("desc").paginate(args.paginationOpts);
+    const viewerUserId = await getAuthUserId(ctx);
+    const summaries = await Promise.all(
+      (page.page as Doc<"runSearchDocs">[])
+        .filter((entry) => {
+          if (args.visibility && entry.visibility !== args.visibility) return false;
+          if (args.categoryId && entry.categoryId !== args.categoryId) return false;
+          if (args.status && entry.status !== args.status) return false;
+          return matchesCreatedAtRange(entry.createdAt, args.createdAfter, args.createdBefore);
+        })
+        .map(async (entry) => {
+          const run = await ctx.db.get(entry.runId);
+          if (!run) return null;
+          const membership = viewerUserId
+            ? await getProjectMembership(ctx, viewerUserId, run.projectId)
+            : null;
+          const organizationMembership = viewerUserId
+            ? await getOrganizationMembership(ctx, viewerUserId, run.organizationId)
+            : null;
+          if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
+            return null;
+          }
+          return runSummaryFromSearchDoc(entry, run);
+        }),
     );
+
+    return {
+      ...page,
+      page: summaries.filter(Boolean),
+    };
   },
 });
 
@@ -636,7 +753,7 @@ export const search = query({
           if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
             continue;
           }
-          results.push(runDocToSummary(run));
+          results.push(runSummaryFromSearchDoc(match, run));
           if (results.length >= paginationOpts.numItems) {
             break;
           }
@@ -651,53 +768,66 @@ export const search = query({
         throw error;
       }
 
-      const fallback = await collectVisibleRunSummariesPage(
-        ctx,
-        {
-          paginationOpts,
-          categoryId: args.categoryId,
-          status: args.status,
-          visibility: args.visibility,
-          createdAfter: args.createdAfter,
-          createdBefore: args.createdBefore,
-        },
-        async (pageArgs) => {
-          let baseQuery: any;
-          if (args.projectId) {
-            baseQuery = ctx.db
-              .query("runs")
-              .withIndex("by_project_and_created_at", (q) => q.eq("projectId", args.projectId!));
-          } else if (args.organizationId) {
-            baseQuery = ctx.db
-              .query("runs")
-              .withIndex("by_org_and_created_at", (q) => q.eq("organizationId", args.organizationId!));
-          } else if (args.visibility) {
-            baseQuery = ctx.db
-              .query("runs")
-              .withIndex("by_visibility_and_created_at", (q) => q.eq("visibility", args.visibility!));
-          } else if (args.status) {
-            baseQuery = ctx.db
-              .query("runs")
-              .withIndex("by_status_and_created_at", (q) => q.eq("status", args.status! as any));
-          } else if (args.categoryId) {
-            baseQuery = ctx.db
-              .query("runs")
-              .withIndex("by_category_and_created_at", (q) => q.eq("categoryId", args.categoryId!));
-          } else {
-            baseQuery = ctx.db.query("runs").withIndex("by_created_at");
-          }
+      let baseQuery: any;
+      if (args.projectId) {
+        baseQuery = ctx.db
+          .query("runSearchDocs")
+          .withIndex("by_project_and_created_at", (q) => q.eq("projectId", args.projectId!));
+      } else if (args.organizationId) {
+        baseQuery = ctx.db
+          .query("runSearchDocs")
+          .withIndex("by_org_and_created_at", (q) => q.eq("organizationId", args.organizationId!));
+      } else if (args.visibility) {
+        baseQuery = ctx.db
+          .query("runSearchDocs")
+          .withIndex("by_visibility_and_created_at", (q) => q.eq("visibility", args.visibility!));
+      } else if (args.status) {
+        baseQuery = ctx.db
+          .query("runSearchDocs")
+          .withIndex("by_status_and_created_at", (q) => q.eq("status", args.status! as any));
+      } else if (args.categoryId) {
+        baseQuery = ctx.db
+          .query("runSearchDocs")
+          .withIndex("by_category_and_created_at", (q) => q.eq("categoryId", args.categoryId!));
+      } else {
+        baseQuery = ctx.db.query("runSearchDocs").withIndex("by_created_at");
+      }
 
-          const page = await baseQuery.order("desc").paginate(pageArgs);
-          return {
-            ...page,
-            page: (page.page as Doc<"runs">[]).filter((run) =>
-              `${run.prompt} ${run.promptExcerpt}`.toLowerCase().includes(normalizedQuery),
-            ),
-          };
-        },
+      const page = await baseQuery.order("desc").paginate(paginationOpts);
+      const fallbackSummaries = await Promise.all(
+        (page.page as Doc<"runSearchDocs">[])
+          .filter((entry) => {
+            if (!matchesCreatedAtRange(entry.createdAt, args.createdAfter, args.createdBefore)) {
+              return false;
+            }
+            if (!entry.promptSearchText.includes(normalizedQuery)) {
+              return false;
+            }
+            if (args.visibility && entry.visibility !== args.visibility) return false;
+            if (args.categoryId && entry.categoryId !== args.categoryId) return false;
+            if (args.status && entry.status !== args.status) return false;
+            return true;
+          })
+          .map(async (entry) => {
+            const run = await ctx.db.get(entry.runId);
+            if (!run) return null;
+            const membership = viewerUserId
+              ? await getProjectMembership(ctx, viewerUserId, run.projectId)
+              : null;
+            const organizationMembership = viewerUserId
+              ? await getOrganizationMembership(ctx, viewerUserId, run.organizationId)
+              : null;
+            if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
+              return null;
+            }
+            return runSummaryFromSearchDoc(entry, run);
+          }),
       );
 
-      return fallback;
+      return {
+        ...page,
+        page: fallbackSummaries.filter(Boolean),
+      };
     }
 
     return {
@@ -735,6 +865,12 @@ export const create = mutation({
     if (!openrouterEntry || openrouterEntry.revokedAt) {
       throw new ConvexError("OpenRouter API key is not configured");
     }
+    const exaEntry = await ctx.db
+      .query("providerVaultEntries")
+      .withIndex("by_user_and_provider", (q) =>
+        q.eq("userId", user._id).eq("provider", "exa"),
+      )
+      .unique();
 
     const selectedModels = resolveSelectedModels(
       args.selectedModelIds,
@@ -951,22 +1087,19 @@ export const create = mutation({
       createdAt: now,
     });
 
-    const jobId = await ctx.db.insert("jobs", {
+    const jobId = await createQueuedJob(ctx, {
       organizationId: project.organizationId,
       projectId,
       runId,
-      jobType: "benchmark.run",
+      jobType: JOB_TYPES.benchmarkRun,
       idempotencyKey: `${runId}:workflow`,
-      status: "queued",
-      attempts: 0,
       maxAttempts: 3,
       deadlineAt: now + 1000 * 60 * 15,
-      workId: undefined,
-      workflowId: undefined,
-      lastError: undefined,
       createdByUserId: user._id,
-      createdAt: now,
-      updatedAt: now,
+      metadata: {
+        categoryId: args.categoryId,
+        selectedModelIds: selectedModels.map((model) => model.id),
+      },
     });
 
     await ctx.db.insert("runEvents", {
@@ -1008,18 +1141,23 @@ export const create = mutation({
     });
     await ctx.db.patch(jobId, {
       workflowId,
-      status: "running",
-      attempts: 1,
       updatedAt: Date.now(),
     });
-    await ctx.db.insert("jobAttempts", {
+    await startJobAttempt(ctx, {
       jobId,
-      attemptNumber: 1,
-      status: "running",
-      error: undefined,
+      workflowId,
       startedAt: now,
-      completedAt: undefined,
-      durationMs: undefined,
+      metadata: {
+        workflowId,
+      },
+    });
+    await recordResearchPreflightJob(ctx, {
+      runId,
+      organizationId: project.organizationId,
+      projectId,
+      createdByUserId: user._id,
+      researchEnabled: Boolean(policy?.researchEnabled),
+      exaConfigured: Boolean(exaEntry && !exaEntry.revokedAt),
     });
 
     const run = await ctx.db.get(runId);
@@ -1846,40 +1984,26 @@ async function finalizeBenchmarkJob(
     .query("jobs")
     .withIndex("by_run", (q) => q.eq("runId", args.runId))
     .collect();
-  const job = jobs.find((entry) => entry.jobType === "benchmark.run");
+  const job = jobs.find((entry) => entry.jobType === JOB_TYPES.benchmarkRun);
   if (!job) {
     return;
   }
-
-  await ctx.db.patch(job._id, {
+  await finalizeJob(ctx, {
+    jobId: job._id,
     status:
       args.status === "complete"
-        ? "complete"
+        ? JOB_STATUSES.complete
         : args.status === "canceled"
-          ? "canceled"
-          : "failed",
-    lastError: args.error,
-    updatedAt: args.completedAt,
-  });
-
-  const attempts = await ctx.db
-    .query("jobAttempts")
-    .withIndex("by_job", (q) => q.eq("jobId", job._id))
-    .collect();
-  const latestAttempt = attempts.sort((a, b) => b.attemptNumber - a.attemptNumber)[0];
-  if (!latestAttempt) {
-    return;
-  }
-  await ctx.db.patch(latestAttempt._id, {
-    status:
-      args.status === "complete"
-        ? "complete"
-        : args.status === "canceled"
-          ? "canceled"
-          : "failed",
-    error: args.error,
+          ? JOB_STATUSES.canceled
+          : args.status === "dead_lettered"
+            ? JOB_STATUSES.deadLettered
+            : JOB_STATUSES.failed,
     completedAt: args.completedAt,
-    durationMs: args.completedAt - latestAttempt.startedAt,
+    error: args.error,
+    deadLetterReason:
+      args.status === "dead_lettered"
+        ? args.error ?? "Benchmark workflow exhausted retries and needs a manual restart."
+        : undefined,
   });
 }
 
@@ -1958,6 +2082,19 @@ export const finalizeRunOutcomeInternal = internalMutation({
       completedAt: now,
       error: args.error,
     });
+    if (args.status === "dead_lettered") {
+      await recordValidationRepairJob(ctx, {
+        run: {
+          ...run,
+          status: args.status,
+          currentStep: args.currentStep,
+          error: args.error,
+          updatedAt: now,
+        },
+        createdAt: now,
+        reason: args.error ?? args.currentStep,
+      });
+    }
 
     return null;
   },

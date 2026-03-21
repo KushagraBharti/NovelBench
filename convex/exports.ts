@@ -4,6 +4,13 @@ import { mutation, query, internalQuery } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import { exportsWorkpool } from "./workflow";
 import { requireAuthUser, requireProjectAccess } from "./lib/auth";
+import {
+  createQueuedJob,
+  finalizeJob,
+  JOB_STATUSES,
+  JOB_TYPES,
+  startJobAttempt,
+} from "./lib/jobs";
 
 const exportFormatValidator = v.union(v.literal("json"), v.literal("csv"));
 const exportScopeTypeValidator = v.union(
@@ -169,22 +176,20 @@ export const requestRunExport = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    const jobId = await ctx.db.insert("jobs", {
+    const jobId = await createQueuedJob(ctx, {
       organizationId: run.organizationId,
       projectId: run.projectId,
       runId: run._id,
-      jobType: "export.run",
+      jobType: JOB_TYPES.exportRun,
       idempotencyKey: `export:${run._id}:${args.format}:${user._id}`,
-      status: "queued",
-      attempts: 0,
       maxAttempts: 3,
       deadlineAt: now + 1000 * 60 * 10,
-      workId: undefined,
-      workflowId: undefined,
-      lastError: undefined,
       createdByUserId: user._id,
-      createdAt: now,
-      updatedAt: now,
+      metadata: {
+        exportId,
+        format: args.format,
+        scopeType: "run",
+      },
     });
 
     const workId = await exportsWorkpool.enqueueAction(
@@ -205,20 +210,13 @@ export const requestRunExport = mutation({
       status: "running",
       updatedAt: Date.now(),
     });
-    await ctx.db.patch(jobId, {
-      status: "running",
-      attempts: 1,
-      workId,
-      updatedAt: Date.now(),
-    });
-    await ctx.db.insert("jobAttempts", {
+    await startJobAttempt(ctx, {
       jobId,
-      attemptNumber: 1,
-      status: "running",
-      error: undefined,
+      workId,
       startedAt: now,
-      completedAt: undefined,
-      durationMs: undefined,
+      metadata: {
+        exportId,
+      },
     });
     await ctx.db.insert("auditLogs", {
       actorUserId: user._id,
@@ -291,22 +289,20 @@ export const requestProjectSummaryExport = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    const jobId = await ctx.db.insert("jobs", {
+    const jobId = await createQueuedJob(ctx, {
       organizationId: project.organizationId,
       projectId: project._id,
       runId: undefined,
-      jobType: "export.project_summary",
+      jobType: JOB_TYPES.exportProjectSummary,
       idempotencyKey: `export:project_summary:${project._id}:${args.format}:${user._id}`,
-      status: "queued",
-      attempts: 0,
       maxAttempts: 3,
       deadlineAt: now + 1000 * 60 * 10,
-      workId: undefined,
-      workflowId: undefined,
-      lastError: undefined,
       createdByUserId: user._id,
-      createdAt: now,
-      updatedAt: now,
+      metadata: {
+        exportId,
+        format: args.format,
+        scopeType: "project_summary",
+      },
     });
 
     const workId = await exportsWorkpool.enqueueAction(
@@ -324,20 +320,13 @@ export const requestProjectSummaryExport = mutation({
     );
 
     await ctx.db.patch(exportId, { status: "running", updatedAt: now });
-    await ctx.db.patch(jobId, {
-      status: "running",
-      attempts: 1,
-      workId,
-      updatedAt: now,
-    });
-    await ctx.db.insert("jobAttempts", {
+    await startJobAttempt(ctx, {
       jobId,
-      attemptNumber: 1,
-      status: "running",
-      error: undefined,
+      workId,
       startedAt: now,
-      completedAt: undefined,
-      durationMs: undefined,
+      metadata: {
+        exportId,
+      },
     });
     await ctx.db.insert("auditLogs", {
       actorUserId: user._id,
@@ -409,22 +398,21 @@ export const requestLeaderboardExport = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    const jobId = await ctx.db.insert("jobs", {
+    const jobId = await createQueuedJob(ctx, {
       organizationId: user.defaultOrgId,
       projectId: undefined,
       runId: undefined,
-      jobType: "export.leaderboard",
+      jobType: JOB_TYPES.exportLeaderboard,
       idempotencyKey: `export:leaderboard:${scopeKey}:${args.format}:${user._id}`,
-      status: "queued",
-      attempts: 0,
       maxAttempts: 3,
       deadlineAt: now + 1000 * 60 * 10,
-      workId: undefined,
-      workflowId: undefined,
-      lastError: undefined,
       createdByUserId: user._id,
-      createdAt: now,
-      updatedAt: now,
+      metadata: {
+        exportId,
+        format: args.format,
+        scopeType: "leaderboard",
+        categoryId: args.categoryId,
+      },
     });
 
     const workId = await exportsWorkpool.enqueueAction(
@@ -442,20 +430,13 @@ export const requestLeaderboardExport = mutation({
     );
 
     await ctx.db.patch(exportId, { status: "running", updatedAt: now });
-    await ctx.db.patch(jobId, {
-      status: "running",
-      attempts: 1,
-      workId,
-      updatedAt: now,
-    });
-    await ctx.db.insert("jobAttempts", {
+    await startJobAttempt(ctx, {
       jobId,
-      attemptNumber: 1,
-      status: "running",
-      error: undefined,
+      workId,
       startedAt: now,
-      completedAt: undefined,
-      durationMs: undefined,
+      metadata: {
+        exportId,
+      },
     });
     await ctx.db.insert("auditLogs", {
       actorUserId: user._id,
@@ -506,22 +487,11 @@ export const handleExportCompletionInternal = exportsWorkpool.defineOnComplete({
         sizeBytes: result.sizeBytes,
         updatedAt: now,
       });
-      await ctx.db.patch(context.jobId, {
-        status: "complete",
-        updatedAt: now,
+      await finalizeJob(ctx, {
+        jobId: context.jobId,
+        status: JOB_STATUSES.complete,
+        completedAt: now,
       });
-      const attempts = (await ctx.db
-        .query("jobAttempts")
-        .withIndex("by_job", (q) => q.eq("jobId", context.jobId))
-        .collect()) as Doc<"jobAttempts">[];
-      const latestAttempt = attempts.sort((a, b) => b.attemptNumber - a.attemptNumber)[0];
-      if (latestAttempt) {
-        await ctx.db.patch(latestAttempt._id, {
-          status: "complete",
-          completedAt: now,
-          durationMs: now - latestAttempt.startedAt,
-        });
-      }
       const run = exportDoc.runId
         ? ((await ctx.db.get(exportDoc.runId)) as Doc<"runs"> | null)
         : null;
@@ -540,24 +510,15 @@ export const handleExportCompletionInternal = exportsWorkpool.defineOnComplete({
       status: args.result.kind,
       updatedAt: now,
     });
-    await ctx.db.patch(context.jobId, {
-      status: args.result.kind,
-      lastError: error,
-      updatedAt: now,
+    await finalizeJob(ctx, {
+      jobId: context.jobId,
+      status:
+        args.result.kind === "canceled" ? JOB_STATUSES.canceled : JOB_STATUSES.failed,
+      completedAt: now,
+      error,
+      deadLetterReason:
+        args.result.kind === "failed" ? "Export exhausted retries or failed generation." : undefined,
     });
-    const attempts = (await ctx.db
-      .query("jobAttempts")
-      .withIndex("by_job", (q) => q.eq("jobId", context.jobId))
-      .collect()) as Doc<"jobAttempts">[];
-    const latestAttempt = attempts.sort((a, b) => b.attemptNumber - a.attemptNumber)[0];
-    if (latestAttempt) {
-      await ctx.db.patch(latestAttempt._id, {
-        status: args.result.kind,
-        error,
-        completedAt: now,
-        durationMs: now - latestAttempt.startedAt,
-      });
-    }
   },
 });
 

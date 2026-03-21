@@ -7,6 +7,8 @@ export async function GET(request: NextRequest) {
   const to = searchParams.get("to");
   const page = await fetchArchivePage({
     query: searchParams.get("q") ?? undefined,
+    organizationId: searchParams.get("organizationId") ?? undefined,
+    projectId: searchParams.get("projectId") ?? undefined,
     categoryId: searchParams.get("category") ?? undefined,
     status: searchParams.get("status") ?? undefined,
     cursor: searchParams.get("cursor"),

@@ -333,6 +333,8 @@ export default defineSchema({
     workId: v.optional(v.string()),
     workflowId: v.optional(v.string()),
     lastError: v.optional(v.string()),
+    deadLetterReason: v.optional(v.string()),
+    metadata: v.optional(v.any()),
     createdByUserId: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -346,6 +348,8 @@ export default defineSchema({
     attemptNumber: v.number(),
     status: v.string(),
     error: v.optional(v.string()),
+    deadlineAt: v.optional(v.number()),
+    metadata: v.optional(v.any()),
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     durationMs: v.optional(v.number()),
@@ -363,7 +367,12 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_run", ["runId"])
+    .index("by_created_at", ["createdAt"])
+    .index("by_org_and_created_at", ["organizationId", "createdAt"])
     .index("by_project_and_created_at", ["projectId", "createdAt"])
+    .index("by_status_and_created_at", ["status", "createdAt"])
+    .index("by_visibility_and_created_at", ["visibility", "createdAt"])
+    .index("by_category_and_created_at", ["categoryId", "createdAt"])
     .searchIndex("search_prompt", {
       searchField: "promptSearchText",
       filterFields: ["organizationId", "projectId", "categoryId", "status", "visibility"],

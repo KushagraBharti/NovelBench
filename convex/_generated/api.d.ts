@@ -22,6 +22,7 @@ import type * as lib_auth from "../lib/auth.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_crypto from "../lib/crypto.js";
 import type * as lib_exa from "../lib/exa.js";
+import type * as lib_jobs from "../lib/jobs.js";
 import type * as lib_leaderboard from "../lib/leaderboard.js";
 import type * as lib_openrouter from "../lib/openrouter.js";
 import type * as lib_policies from "../lib/policies.js";
@@ -55,6 +56,7 @@ declare const fullApi: ApiFromModules<{
   "lib/constants": typeof lib_constants;
   "lib/crypto": typeof lib_crypto;
   "lib/exa": typeof lib_exa;
+  "lib/jobs": typeof lib_jobs;
   "lib/leaderboard": typeof lib_leaderboard;
   "lib/openrouter": typeof lib_openrouter;
   "lib/policies": typeof lib_policies;

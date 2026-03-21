@@ -21,6 +21,8 @@ export async function fetchRun(runId: string): Promise<BenchmarkRun | null> {
 
 export interface ArchiveFilters {
   query?: string;
+  organizationId?: string;
+  projectId?: string;
   categoryId?: string;
   status?: string;
   visibility?: "private" | "org_shared" | "public" | "public_full";
@@ -41,6 +43,8 @@ export async function fetchArchivePage(filters: ArchiveFilters = {}) {
       api.runs.search,
       {
         query: filters.query.trim(),
+        organizationId: filters.organizationId as never,
+        projectId: filters.projectId as never,
         paginationOpts,
         categoryId: filters.categoryId || undefined,
         status: filters.status || undefined,
@@ -59,6 +63,8 @@ export async function fetchArchivePage(filters: ArchiveFilters = {}) {
   return (await fetchQuery(
     api.runs.list,
     {
+      organizationId: filters.organizationId as never,
+      projectId: filters.projectId as never,
       paginationOpts,
       categoryId: filters.categoryId || undefined,
       status: filters.status || undefined,

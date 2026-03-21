@@ -28,24 +28,27 @@ export default function HumanCritiquePanel({
 }: HumanCritiquePanelProps) {
   const [drafts, setDrafts] = useState<Record<string, { strengths: string; weaknesses: string; suggestions: string }>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [savingOnly, setSavingOnly] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
+
+  const critiques = Object.entries(drafts)
+    .filter(([, draft]) => draft.strengths || draft.weaknesses || draft.suggestions)
+    .map(([targetModelId, draft]) => ({
+      targetModelId,
+      ideaLabel: "H",
+      strengths: draft.strengths,
+      weaknesses: draft.weaknesses,
+      suggestions: draft.suggestions,
+      score: 7,
+      authorLabel: "You",
+    }));
 
   async function handleSubmit() {
-    const critiques = Object.entries(drafts)
-      .filter(([, draft]) => draft.strengths || draft.weaknesses || draft.suggestions)
-      .map(([targetModelId, draft]) => ({
-        targetModelId,
-        ideaLabel: "H",
-        strengths: draft.strengths,
-        weaknesses: draft.weaknesses,
-        suggestions: draft.suggestions,
-        score: 7,
-        authorLabel: "You",
-      }));
-
     setSubmitting(true);
     try {
       if (critiques.length > 0) {
         await onSubmit(critiques);
+        setSavedCount(critiques.length);
       }
       await onProceed();
     } finally {
@@ -53,21 +56,55 @@ export default function HumanCritiquePanel({
     }
   }
 
+  async function handleSaveOnly() {
+    if (critiques.length === 0) {
+      setSavedCount(0);
+      return;
+    }
+
+    setSavingOnly(true);
+    try {
+      await onSubmit(critiques);
+      setSavedCount(critiques.length);
+    } finally {
+      setSavingOnly(false);
+    }
+  }
+
   return (
     <div className="border-t border-border pt-6">
-      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
+      <div className="flex flex-col gap-5 border-b border-border/70 pb-6 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="label mb-2">Optional Human Critique</p>
-          <p className="text-base text-text-secondary max-w-2xl">
-            Add your own revision guidance before Stage 3. Leave everything blank and proceed to continue automatically.
+          <p className="max-w-2xl text-base leading-relaxed text-text-secondary">
+            This is the only intentional manual checkpoint in the run. Save critique guidance for any model you want, then continue to revision when you are ready.
+          </p>
+          <p className="mt-3 text-sm uppercase tracking-[0.18em] text-text-muted">
+            Leave everything blank to skip human critique entirely.
           </p>
         </div>
-        <Button onClick={handleSubmit} disabled={disabled || submitting}>
-          {submitting ? "Submitting..." : "Proceed to Revision"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-4">
+          <button
+            type="button"
+            onClick={handleSaveOnly}
+            disabled={disabled || submitting || savingOnly || critiques.length === 0}
+            className="border-b border-border/70 py-1 text-sm uppercase tracking-[0.18em] text-text-muted transition-colors hover:border-accent hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {savingOnly ? "Saving..." : "Save critique"}
+          </button>
+          <Button onClick={handleSubmit} disabled={disabled || submitting || savingOnly}>
+            {submitting ? "Continuing..." : critiques.length > 0 ? "Continue to Revision" : "Skip to Revision"}
+          </Button>
+        </div>
       </div>
 
-      <div className="space-y-4">
+      {savedCount > 0 ? (
+        <p className="mt-4 text-sm uppercase tracking-[0.18em] text-accent">
+          Saved {savedCount} human critique{savedCount === 1 ? "" : "s"}.
+        </p>
+      ) : null}
+
+      <div className="mt-6 space-y-4">
         {run.ideas
           .filter((idea) => !run.failedModels.includes(idea.modelId))
           .map((idea) => {
@@ -85,7 +122,7 @@ export default function HumanCritiquePanel({
                     <textarea
                       key={field}
                       value={draft[field]}
-                      disabled={disabled || submitting}
+                      disabled={disabled || submitting || savingOnly}
                       onChange={(event) =>
                         setDrafts((current) => ({
                           ...current,
