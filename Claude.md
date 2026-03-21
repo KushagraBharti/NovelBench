@@ -16,6 +16,7 @@ Read in this order:
 8. `src/lib/structured-output.ts`, `src/lib/openrouter.ts`, and `src/lib/benchmark-web.ts` for parsing and provider behavior.
 9. `src/components/arena` and `src/components/results` for the live UI and result views.
 10. `docs/prompt-review-workbook.md` when changing prompt wording or stage behavior.
+11. `src/lib/runtime-config.ts` for shared timeout/runtime limits before touching provider timing.
 
 ## What The App Does
 
@@ -66,6 +67,7 @@ If you need to understand or change behavior, these files are the source of trut
 - Prompt review reconstruction: `src/lib/prompt-review.ts`
 - OpenRouter request shape and streaming: `src/lib/openrouter.ts`
 - Retry timing and reasoning config: `src/lib/prompt-runtime.ts`
+- Shared timeout/runtime constants: `src/lib/runtime-config.ts`
 - Structured output repair: `src/lib/structured-output.ts`
 - Shared web-search helpers: `src/lib/benchmark-web.ts`
 - Run orchestration and access control: `convex/runs.ts`
@@ -82,11 +84,17 @@ Do not casually change these unless the task explicitly requires it:
 - Anonymous critique and vote labels.
 - The JSON-first prompt contract for generate/critique/revise/vote.
 - The Convex live state contract consumed by `useBenchmarkSSE`.
+- The live trace experience for new runs: reasoning details, tool calls, exact source URLs, and streaming draft text must remain visible.
 - Append-only run events, participants, and artifacts in Convex.
 - Category IDs and their stable identity mapping.
 - Model IDs and legacy aliases unless you are updating the catalog intentionally.
 - Function-level org/project authorization and BYOK provider boundaries.
 - The editorial dark visual language and page structure unless the task is a design rewrite.
+- The shared timeout must come from `src/lib/runtime-config.ts`; do not fork per-surface timeout values.
+- Runs should progress automatically through generate, critique, revise, and vote. Only the human critique checkpoint should wait for explicit user action.
+- Archive pages are public-facing read surfaces and should stay separate from the live arena control shell.
+- Workflow steps must not persist or return full live-event streams; keep workflow step inputs and outputs slim enough to stay well below Convex step-state limits.
+- Avoid generic card grids, rounded pill controls, detached dashboard widgets, and utility chips unless the existing surface already uses them intentionally.
 
 ## Editing Rules
 
@@ -97,6 +105,11 @@ Do not casually change these unless the task explicitly requires it:
 - Do not touch generated directories like `.next/`, `.next-foundation/`, `node_modules/`, or `convex/_generated/`.
 - If prompt wording changes, update the prompt review workbook or related prompt docs.
 - If you change parsing or response shape, add or adjust tests in `src/lib/*.test.ts`.
+- When editing frontend surfaces, use the `frontend-design` skill and match the existing editorial system from the landing, dashboard, arena, and leaderboard before inventing new UI primitives.
+- Prefer hard edges, type hierarchy, rules, spacing, and grid rhythm over rounded cards, pills, badges, or floating control boxes.
+- Keep exports, filters, and run controls integrated into the layout instead of tacking them on as isolated utility panels.
+- When changing Convex workflows or actions, check for hot-document OCC issues and for payloads that could exceed Convex document or workflow-step size limits.
+- If a fix is deployed directly to production Convex, commit and push the matching repo change immediately so the codebase and production do not drift.
 
 ## Working Style
 
@@ -104,6 +117,16 @@ Do not casually change these unless the task explicitly requires it:
 - Use the browser or UI only when the change affects client behavior.
 - Use local tests to confirm parsing, aggregation, workflow logic, policy enforcement, and model catalog rules.
 - When you are uncertain about a contract, inspect the Convex schema, queries, and hydrated run shape before changing code.
+- If a run appears stuck, inspect Convex workflow logs and workpool completion behavior before touching the UI.
+- Treat `runs:getRunBundleInternal` as the rich UI/debug bundle and keep workflow-only queries slim and purpose-built.
+
+## Regression Traps
+
+- Do not remove or downgrade live reasoning/search trace persistence when touching benchmark execution. The trace path is part of the product, not optional debug output.
+- Do not patch hot `runs` documents for high-frequency live token or reasoning updates unless absolutely necessary; append-only events are safer.
+- Do not route archive detail pages through the live arena shell. Archive detail should be stable, readable, and public.
+- Do not introduce local-only filtering if the server is already responsible for search/filter semantics.
+- Do not “simplify” UI by falling back to generic cards or pills. This app uses an editorial interface language, not SaaS widgets.
 
 ## Practical Reading Order For Fast Onboarding
 

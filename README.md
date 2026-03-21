@@ -86,11 +86,20 @@ Each domain has:
 - **Large payloads live in object storage.** Search payloads, exports, and other large artifacts are stored in Convex file storage.
 - **Execution is durable.** Convex Workflow and bounded work pools coordinate benchmark stages instead of relying on an in-process scheduler.
 - **Progress is realtime.** The UI subscribes to Convex queries for live run state instead of consuming an SSE route.
+- **Trace visibility is part of the product.** New runs should preserve reasoning details, tool calls, exact cited URLs, and live draft streaming where supported.
 - **Prompt generation is centralized.** Shared stage copy lives in `src/lib/prompt-copy.ts`, while the prompt builder logic lives in `src/lib/prompts.ts`.
 - **Structured output is defensive.** The app tries to recover from fenced JSON, truncated JSON, and lightly malformed model output.
 - **Anonymous labels are stable per stage.** Judges see labels like A, B, C, not model names.
 - **The leaderboard is cached derived data.** It is updated from completed runs and served from Convex read models.
 - **BYOK is enforced.** Users bring their own OpenRouter and Exa keys, which are stored encrypted server-side.
+
+## Implementation Guardrails
+
+- **One timeout source of truth.** Runtime/provider timeout configuration should come from `src/lib/runtime-config.ts`, not scattered per caller.
+- **Workflow state must stay small.** Convex workflow steps should pass IDs and compact summaries, not full event streams or live trace payloads.
+- **Automatic stage progression is expected.** Runs should advance automatically through generate, critique, revise, and final vote. Only the human critique checkpoint is intentionally user-gated.
+- **Archive is a public read surface.** Archive pages and archive detail should remain stable, public-facing views, separate from the live arena control shell.
+- **The UI language is editorial, not SaaS.** Favor typography, spacing, rules, and hard-edged modules over rounded cards, pills, floating badges, and detached utility panels.
 
 ## Tech Stack
 
@@ -171,3 +180,4 @@ Convex production variables are managed separately in Convex:
 - Legacy benchmark files can be imported into the Convex run/event/artifact model through a migration path.
 - The current model catalog in code is the source of truth; the README may lag if the catalog changes.
 - Prompt behavior is centralized and reviewed separately so it can be changed without rewriting the workflow.
+- If a production Convex fix is deployed directly, the corresponding repo change should be committed immediately so the repo and deployment stay in sync.
