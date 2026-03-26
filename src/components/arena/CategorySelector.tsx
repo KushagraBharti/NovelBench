@@ -23,6 +23,7 @@ export default function CategorySelector({
           return (
             <button
               key={cat.id}
+              type="button"
               onClick={() => !disabled && onSelect(cat.id)}
               disabled={disabled}
               className={clsx(

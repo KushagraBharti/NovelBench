@@ -104,6 +104,7 @@ export default function PromptInput({
             {examples.map((example, i) => (
               <button
                 key={i}
+                type="button"
                 onClick={() => !disabled && onQuickRun(example)}
                 disabled={disabled}
                 className="w-full text-left text-base px-4 py-3 border border-border text-text-secondary hover:text-text-primary hover:border-border-active hover:bg-white/[0.02] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
