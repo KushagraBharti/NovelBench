@@ -12,7 +12,7 @@ export default async function StatsBar() {
   ];
 
   return (
-    <section className="py-16 px-6 border-t border-border">
+    <section className="py-16 px-6 border-t border-border/60 bg-bg-deep/78 backdrop-blur-sm">
       <div className="max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-px bg-border border border-border">
         {items.map((item) => (
           <div key={item.label} className="text-center bg-bg-deep px-4 py-6">

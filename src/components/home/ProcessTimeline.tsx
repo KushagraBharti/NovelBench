@@ -15,7 +15,7 @@ export default function ProcessTimeline() {
   const isInView = useInView(ref, { once: true, margin: "-100px" });
 
   return (
-    <section className="py-28 px-6 border-t border-border">
+    <section className="py-28 px-6 border-t border-border/60 bg-bg-deep/82 backdrop-blur-sm">
       <div className="max-w-6xl mx-auto">
         <p className="label mb-4">The Process</p>
         <h2 className="font-display text-3xl sm:text-4xl text-text-primary mb-16">
