@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Hero from "@/components/home/Hero";
 import ProcessTimeline from "@/components/home/ProcessTimeline";
 import ContendersGrid from "@/components/home/ContendersGrid";
@@ -11,12 +12,16 @@ export default function Home() {
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 -z-10 bg-bg-deep"
       >
-        <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-80"
-          style={{ backgroundImage: "url('/background.png')" }}
+        <Image
+          src="/background.png"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="object-contain object-center opacity-90"
         />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(9,9,11,0.28),rgba(9,9,11,0.88)_65%,#09090B_100%)]" />
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(9,9,11,0.16)_0%,rgba(9,9,11,0.42)_26%,rgba(9,9,11,0.84)_100%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(9,9,11,0.1)_0%,rgba(9,9,11,0.42)_58%,rgba(9,9,11,0.82)_100%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(9,9,11,0.08)_0%,rgba(9,9,11,0.28)_18%,rgba(9,9,11,0.72)_100%)]" />
       </div>
 
       <Hero />
