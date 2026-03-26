@@ -11,7 +11,7 @@ export default function DomainsGrid() {
   const isInView = useInView(ref, { once: true, margin: "-80px" });
 
   return (
-    <section className="py-28 px-6 border-t border-border/60 bg-bg-deep/78 backdrop-blur-sm">
+    <section className="py-28 px-6 border-t border-border/60 bg-bg-deep/60 backdrop-blur-sm">
       <div className="max-w-6xl mx-auto">
         <p className="label mb-4">Creative Domains</p>
         <h2 className="font-display text-3xl sm:text-4xl text-text-primary mb-16">
