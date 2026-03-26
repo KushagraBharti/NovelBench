@@ -23,10 +23,8 @@ export default function CritiqueCard({ critique, fromModelId, headingOverride }:
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-1.5 text-base text-text-muted">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: from.color }} />
           <span>{from.name}</span>
-          <span className="mx-1">&rarr;</span>
-          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: to.color }} />
+          <span className="mx-1 text-text-muted/40">&rarr;</span>
           <span>{to.name}</span>
         </div>
         <span

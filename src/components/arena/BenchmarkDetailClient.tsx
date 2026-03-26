@@ -37,46 +37,45 @@ export default function BenchmarkDetailClient({
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
-      <Link
-        href="/archive"
-        className="text-base text-text-muted hover:text-text-secondary transition-colors mb-6 inline-block"
-      >
-        &larr; Archive
-      </Link>
+      <div className="flex items-center gap-4 mb-8">
+        <Link
+          href="/archive"
+          className="text-sm text-text-muted hover:text-text-secondary transition-colors"
+        >
+          &larr; Archive
+        </Link>
+        <span className="text-border">/</span>
+        <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-text-muted">
+          {activeRun.status.replaceAll("_", " ")}
+        </span>
+      </div>
 
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="mb-6">
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-text-muted">
-            {activeRun.status.replaceAll("_", " ")}
-          </p>
-        </div>
-        <div className="mb-8 space-y-6">
-          <ArenaRunner
-            status={activeRun.status}
-            step={activeRun.currentStep}
+      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-10">
+        <ArenaRunner
+          status={activeRun.status}
+          step={activeRun.currentStep}
+          run={activeRun}
+          onPauseRun={() => live.pauseBenchmark()}
+          onResumeRun={() => live.resumeBenchmark()}
+          onCancelRun={() => live.cancelBenchmark()}
+          onRestartRun={async () => {
+            const next = await live.restartBenchmark();
+            if (next?.id && next.id !== runId) {
+              router.push(`/arena/${next.id}`);
+            }
+          }}
+        />
+        {activeRun.status === "awaiting_human_critique" && (
+          <HumanCritiquePanel
             run={activeRun}
-            onPauseRun={() => live.pauseBenchmark()}
-            onResumeRun={() => live.resumeBenchmark()}
-            onCancelRun={() => live.cancelBenchmark()}
-            onRestartRun={async () => {
-              const next = await live.restartBenchmark();
-              if (next?.id && next.id !== runId) {
-                router.push(`/arena/${next.id}`);
-              }
+            onSubmit={async (critiques) => {
+              await live.submitHumanCritiques(critiques);
+            }}
+            onProceed={async () => {
+              await live.proceedBenchmark();
             }}
           />
-          {activeRun.status === "awaiting_human_critique" && (
-            <HumanCritiquePanel
-              run={activeRun}
-              onSubmit={async (critiques) => {
-                await live.submitHumanCritiques(critiques);
-              }}
-              onProceed={async () => {
-                await live.proceedBenchmark();
-              }}
-            />
-          )}
-        </div>
+        )}
         <ResultsView
           run={activeRun}
           isLive={live.isRunning}

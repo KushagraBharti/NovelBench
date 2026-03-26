@@ -87,20 +87,14 @@ export default function WinnerReveal({
               {model.name}
             </motion.h2>
 
-            <motion.div
+            <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 0.8 }}
-              className="flex items-center justify-center gap-3"
+              className="font-mono text-base text-text-secondary text-center"
             >
-              <span
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: model.color }}
-              />
-              <span className="font-mono text-base text-text-secondary">
-                Avg Rank {winner.avgRank.toFixed(2)}
-              </span>
-            </motion.div>
+              Avg Rank {winner.avgRank.toFixed(2)}
+            </motion.p>
 
             <motion.p
               initial={{ opacity: 0 }}

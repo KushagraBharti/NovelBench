@@ -4,11 +4,11 @@ import { motion } from "framer-motion";
 import { BenchmarkStatus, RunCheckpointStage } from "@/types";
 import { clsx } from "clsx";
 
-const stages: { status: BenchmarkStatus; label: string }[] = [
-  { status: "generating", label: "Generate" },
-  { status: "critiquing", label: "Critique" },
-  { status: "revising", label: "Revise" },
-  { status: "voting", label: "Crown" },
+const stages: { status: BenchmarkStatus; label: string; number: string }[] = [
+  { status: "generating", label: "Generate", number: "01" },
+  { status: "critiquing", label: "Critique", number: "02" },
+  { status: "revising", label: "Revise", number: "03" },
+  { status: "voting", label: "Crown", number: "04" },
 ];
 
 function getStageIndex(status: BenchmarkStatus): number {
@@ -52,60 +52,48 @@ export default function StageOrbs({
   const currentIndex = getStageIndex(effectiveStatus);
 
   return (
-    <div className="flex items-center gap-0">
+    <div className="grid grid-cols-4 gap-0">
       {stages.map((stage, i) => {
         const isComplete = currentIndex > i;
         const isCurrent = currentIndex === i;
-        const isUpcoming = currentIndex < i;
 
         return (
-          <div key={stage.status} className="flex items-center flex-1">
-            {/* Stage block */}
-            <div className="flex-1 text-center">
-              {/* Indicator */}
-              <div className="flex justify-center mb-2">
-                <div
-                  className={clsx(
-                    "w-2 h-2 rounded-full transition-all duration-500",
-                    isComplete && "bg-success scale-100",
-                    isCurrent && "bg-text-primary scale-125",
-                    isUpcoming && "bg-border scale-100"
-                  )}
-                >
-                  {isCurrent && (
-                    <motion.div
-                      className="w-full h-full rounded-full bg-text-primary"
-                      animate={{ opacity: [1, 0.3, 1] }}
-                      transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-                    />
-                  )}
-                </div>
-              </div>
+          <div key={stage.status} className="relative">
+            {/* Top progress line */}
+            <div className="h-px w-full bg-border/40 mb-4">
+              {(isComplete || isCurrent) && (
+                <motion.div
+                  className={clsx("h-full", isComplete ? "bg-accent/60" : "bg-text-primary")}
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  style={{ transformOrigin: "left" }}
+                  transition={{ duration: 0.5, delay: i * 0.1, ease: "easeOut" }}
+                />
+              )}
+            </div>
 
+            <div className="pr-4">
               <span
                 className={clsx(
-                  "text-base font-medium tracking-wider uppercase transition-colors duration-300",
-                  isComplete && "text-success",
+                  "font-mono text-[11px] tracking-[0.2em] transition-colors duration-300",
+                  isComplete && "text-accent/60",
                   isCurrent && "text-text-primary",
-                  isUpcoming && "text-text-muted/40"
+                  !isComplete && !isCurrent && "text-text-muted/25",
+                )}
+              >
+                {stage.number}
+              </span>
+              <p
+                className={clsx(
+                  "text-base mt-1 transition-colors duration-300",
+                  isComplete && "text-text-secondary",
+                  isCurrent && "text-text-primary font-medium",
+                  !isComplete && !isCurrent && "text-text-muted/30",
                 )}
               >
                 {stage.label}
-              </span>
+              </p>
             </div>
-
-            {/* Connector (not after last) */}
-            {i < stages.length - 1 && (
-              <div className="w-8 h-px bg-border mx-1">
-                <motion.div
-                  className="h-full bg-success"
-                  initial={{ scaleX: 0 }}
-                  animate={{ scaleX: isComplete ? 1 : 0 }}
-                  style={{ transformOrigin: "left" }}
-                  transition={{ duration: 0.4, ease: "easeOut" }}
-                />
-              </div>
-            )}
           </div>
         );
       })}

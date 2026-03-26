@@ -71,11 +71,7 @@ export default function RankingDisplay({ rankings, title, showPodium, showReason
                   >
                     {placeLabels[place]}
                   </span>
-                  <span className="text-base text-text-secondary block mb-1">{score.modelName}</span>
-                  <span
-                    className="w-2 h-2 rounded-full inline-block mb-1"
-                    style={{ backgroundColor: model.color }}
-                  />
+                  <span className="text-base text-text-secondary block mb-2">{score.modelName}</span>
                   <span className="font-mono text-base text-text-muted block">
                     {score.averageScore.toFixed(1)}
                   </span>
@@ -108,10 +104,7 @@ export default function RankingDisplay({ rankings, title, showPodium, showReason
               className="grid grid-cols-[40px_1fr_70px_70px] gap-4 py-3 border-t border-border/50 items-center"
             >
               <span className="font-mono text-base text-text-muted">{placeLabels[i] ?? `${i + 1}th`}</span>
-              <div className="flex items-center gap-2.5">
-                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: model.color }} />
-                <span className="text-base text-text-primary">{score.modelName}</span>
-              </div>
+              <span className="text-base text-text-primary">{score.modelName}</span>
               <span className="font-mono text-base text-text-secondary text-right">{score.averageRank.toFixed(2)}</span>
               <span
                 className="font-mono text-base font-medium text-right"
@@ -149,17 +142,13 @@ export default function RankingDisplay({ rankings, title, showPodium, showReason
                     const judge = getModelIdentity(ranking.judgeModelId);
                     return (
                       <div key={ranking.judgeModelId} className="border-b border-border/50 pb-5 last:border-b-0 sm:last:border-b sm:last:pb-5">
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: judge.color }} />
-                          <span className="text-base text-text-muted">Judge: {judge.name}</span>
-                        </div>
+                        <p className="text-base text-text-muted mb-3">{judge.name}</p>
                         <div className="space-y-3">
                           {[...ranking.rankings].sort((a, b) => a.rank - b.rank).map((entry) => {
                             const m = getModelIdentity(entry.modelId);
                             return (
                               <div key={entry.modelId} className="flex items-center gap-2 text-base">
                                 <span className="font-mono text-text-muted w-5">#{entry.rank}</span>
-                                <span className="w-1.5 h-1.5 rounded-full" style={{ background: m.color }} />
                                 <span className="text-text-secondary flex-1">{m.name}</span>
                                 <span
                                   className="font-mono"
@@ -212,17 +201,15 @@ export default function RankingDisplay({ rankings, title, showPodium, showReason
                               return (
                                 <div key={score.modelId} className="border-b border-border/60 pb-5 last:border-0 last:pb-0">
                                   <div className="flex items-center gap-2.5 mb-3">
-                                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: model.color }} />
                                     <span className="text-base text-text-primary">{score.modelName}</span>
-                                    <span className="font-mono text-sm text-text-muted ml-auto">
-                                      avg rank {score.averageRank.toFixed(2)} · avg score {score.averageScore.toFixed(1)}
+                                    <span className="font-mono text-[11px] text-text-muted ml-auto">
+                                      #{score.averageRank.toFixed(2)} · {score.averageScore.toFixed(1)}
                                     </span>
                                   </div>
                                   <div className="space-y-3">
                                     {judgeReasons.map((entry) => (
                                       <div key={`${score.modelId}-${entry.judge.name}`} className="border-l border-border pl-4">
                                         <div className="flex items-center gap-2 text-sm text-text-muted">
-                                          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: entry.judge.color }} />
                                           <span>{entry.judge.name}</span>
                                           <span className="font-mono ml-auto">#{entry.rank} · {entry.score}/10</span>
                                         </div>

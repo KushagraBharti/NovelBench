@@ -128,15 +128,8 @@ export default function StreamingCard({
       className="border-b border-border pb-6 last:border-0"
     >
       <div className="mb-4 flex items-center gap-3">
-        <span
-          className="h-2 w-2 rounded-full flex-shrink-0"
-          style={{
-            backgroundColor: model.color,
-            animation: "pulse-dot 1.5s ease-in-out infinite",
-          }}
-        />
         <span className="text-base font-medium text-text-primary">{model.name}</span>
-        <span className="font-mono text-base tracking-wide text-text-muted">
+        <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-text-muted">
           {stage === "generate" ? "Generating" : "Revising"}
         </span>
       </div>
@@ -144,8 +137,8 @@ export default function StreamingCard({
       <div className="space-y-4">
         {activityEntries.length > 0 && (
           <div>
-            <span className="label block mb-3">Live Activity</span>
-            <div className="space-y-3">
+            <span className="label block mb-3">Activity</span>
+            <div className="space-y-2">
               {activityEntries.map((entry) => {
                 const isOpen = openEntryId === entry.key;
                 return (
@@ -153,23 +146,19 @@ export default function StreamingCard({
                     <button
                       type="button"
                       onClick={() => setOpenEntryId(isOpen ? null : entry.key)}
-                      className="flex w-full items-start gap-2.5 text-left"
+                      className="flex w-full items-center gap-3 text-left py-1"
                     >
-                      <span
-                        className="mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: entry.accent }}
-                      />
                       <div className="min-w-0 flex-1">
-                        <p className="text-base text-text-primary">{entry.title}</p>
-                        <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-text-muted">
+                        <span className="text-sm text-text-secondary">{entry.title}</span>
+                        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-text-muted/50 ml-2">
                           {entry.meta}
-                        </p>
+                        </span>
                       </div>
-                      <span className="text-sm text-text-muted">{isOpen ? "Hide" : "Show"}</span>
+                      <span className="text-[11px] text-text-muted/40 shrink-0">{isOpen ? "hide" : "show"}</span>
                     </button>
 
                     {isOpen && (
-                      <div className="ml-4 mt-2 border-l border-border pl-4">
+                      <div className="mt-1 mb-2 border-l border-border/50 pl-4 ml-0">
                         {entry.kind === "reasoning" ? (
                           <div className="max-h-40 overflow-auto pr-2">
                             <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-text-secondary">
@@ -177,23 +166,23 @@ export default function StreamingCard({
                             </p>
                           </div>
                         ) : (
-                          <div className="space-y-2 text-sm leading-relaxed text-text-secondary">
+                          <div className="space-y-1.5 text-sm leading-relaxed text-text-secondary">
                             {entry.query && (
                               <p>
-                                <span className="label mr-2">Query</span>
+                                <span className="text-text-muted mr-1.5">query:</span>
                                 {entry.query}
                               </p>
                             )}
                             {entry.note && <p className="text-text-muted">{entry.note}</p>}
                             {entry.urls.length > 0 && (
-                              <div className="space-y-1.5">
+                              <div className="space-y-1">
                                 {entry.urls.map((url) => (
                                   <a
                                     key={url}
                                     href={url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="block break-all text-text-secondary transition-colors hover:text-accent"
+                                    className="block break-all text-text-muted transition-colors hover:text-accent text-xs"
                                   >
                                     {url}
                                   </a>
@@ -214,8 +203,8 @@ export default function StreamingCard({
           </div>
         )}
 
-        <div className={activityEntries.length > 0 ? "border-t border-border pt-4" : ""}>
-          <span className="label block mb-2">Live Output</span>
+        <div className={activityEntries.length > 0 ? "border-t border-border/50 pt-4" : ""}>
+          <span className="label block mb-2">Output</span>
           {hasOutput ? (
             <div className="max-h-72 overflow-auto pr-2">
               <pre className="whitespace-pre-wrap break-words font-mono text-[13px] leading-7 text-text-secondary">
@@ -230,16 +219,7 @@ export default function StreamingCard({
               </pre>
             </div>
           ) : (
-            <div className="flex items-center gap-2 text-base text-text-muted">
-              {[0, 0.18, 0.36].map((delay, index) => (
-                <span
-                  key={index}
-                  className="h-1.5 w-1.5 rounded-full bg-text-muted/40"
-                  style={{ animation: `pulse-dot 1.2s ease-in-out ${delay}s infinite` }}
-                />
-              ))}
-              <span>{outputPlaceholder}</span>
-            </div>
+            <p className="text-sm text-text-muted/50">{outputPlaceholder}</p>
           )}
         </div>
       </div>

@@ -39,13 +39,9 @@ export default function IdeaCard({ idea, label, categoryId }: IdeaCardProps) {
     >
       {/* Header */}
       <div className="flex items-center gap-3 mb-3">
-        <span
-          className="w-2 h-2 rounded-full flex-shrink-0"
-          style={{ backgroundColor: model.color }}
-        />
         <span className="text-base font-medium text-text-primary">{model.name}</span>
         {label && (
-          <span className="font-mono text-base text-text-muted tracking-wide">
+          <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-text-muted">
             {label}
           </span>
         )}

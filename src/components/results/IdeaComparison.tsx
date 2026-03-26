@@ -77,8 +77,7 @@ export default function IdeaComparison({ original, revised, categoryId }: IdeaCo
       className="border-b border-border pb-6 last:border-0"
     >
       {/* Model header */}
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: model.color }} />
+      <div className="mb-4">
         <span className="text-base font-medium text-text-primary">{model.name}</span>
       </div>
 

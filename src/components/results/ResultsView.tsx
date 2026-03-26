@@ -241,7 +241,6 @@ export default function ResultsView({
         {failedModelDetails.map(({ modelId, model, stage, status, message }) => (
           <div key={modelId} className="border-l border-[#7C3E3E]/45 pl-4">
             <div className="flex items-center gap-2.5">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: model.color }} />
               <span className="text-base text-text-primary">{model.name}</span>
               <span className="ml-auto font-mono text-[11px] uppercase tracking-[0.18em] text-[#D8A8A8]">
                 {stage} · {status}
@@ -256,24 +255,28 @@ export default function ResultsView({
 
   return (
     <div>
-      <div className="mb-8">
-        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="label capitalize">{run.categoryId}</span>
-          {isLive && run.status !== "complete" && run.status !== "partial" && (
-            <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#6BBF7B]">
-              live now
-            </span>
-          )}
-          {failedModelDetails.length > 0 && (
-            <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#D8A8A8]">
-              {failedModelDetails.length} issue{failedModelDetails.length === 1 ? "" : "s"}
-            </span>
-          )}
+      <div className="mb-8 border-t border-border pt-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3 mb-2">
+              <span className="label capitalize">{run.categoryId}</span>
+              {isLive && run.status !== "complete" && run.status !== "partial" && (
+                <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#6BBF7B]">
+                  Live
+                </span>
+              )}
+              {failedModelDetails.length > 0 && (
+                <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#D8A8A8]">
+                  {failedModelDetails.length} issue{failedModelDetails.length === 1 ? "" : "s"}
+                </span>
+              )}
+            </div>
+            <p className="text-text-primary text-base leading-relaxed">{run.prompt}</p>
+          </div>
+          <span className="font-mono text-[11px] text-text-muted/60 shrink-0 mt-1">
+            {new Date(run.timestamp).toLocaleDateString()}
+          </span>
         </div>
-        <p className="text-text-primary font-medium text-base">{run.prompt}</p>
-        <p className="font-mono text-base text-text-muted mt-1">
-          {new Date(run.timestamp).toLocaleString()}
-        </p>
       </div>
 
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab}>
@@ -307,7 +310,7 @@ export default function ResultsView({
         {activeTab === "critiques" && (
           <div>
             {critiquedModels.length > 0 && (
-              <div className="flex gap-3 mb-6 flex-wrap">
+              <div className="flex gap-4 mb-6 flex-wrap">
                 <button
                   onClick={() => setCritiqueFilter(null)}
                   className={`text-base transition-colors ${!critiqueFilter ? "text-text-primary" : "text-text-muted hover:text-text-secondary"}`}
@@ -320,10 +323,8 @@ export default function ResultsView({
                     <button
                       key={modelId}
                       onClick={() => setCritiqueFilter(modelId)}
-                      className="flex items-center gap-1.5 text-base transition-colors"
-                      style={{ color: critiqueFilter === modelId ? model.color : "var(--color-text-muted)" }}
+                      className={`text-base transition-colors ${critiqueFilter === modelId ? "text-text-primary" : "text-text-muted hover:text-text-secondary"}`}
                     >
-                      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: model.color }} />
                       {model.name}
                     </button>
                   );
@@ -447,9 +448,9 @@ export default function ResultsView({
       </Tabs>
 
       {isAuthenticated && (
-        <div className="mt-10 border-t border-border/70 pt-4">
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-            <span className="label">Exports</span>
+        <div className="mt-10 border-t border-border pt-5">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <span className="label">Export</span>
             <button
               type="button"
               onClick={() => {
@@ -460,9 +461,9 @@ export default function ResultsView({
                     setExportMessage(error instanceof Error ? error.message : "Failed to queue export."),
                   );
               }}
-              className="text-sm uppercase tracking-[0.18em] text-text-muted transition-colors hover:text-text-primary"
+              className="text-sm text-text-muted transition-colors hover:text-text-primary"
             >
-              Queue JSON
+              JSON
             </button>
             <button
               type="button"
@@ -474,9 +475,9 @@ export default function ResultsView({
                     setExportMessage(error instanceof Error ? error.message : "Failed to queue export."),
                   );
               }}
-              className="text-sm uppercase tracking-[0.18em] text-text-muted transition-colors hover:text-text-primary"
+              className="text-sm text-text-muted transition-colors hover:text-text-primary"
             >
-              Queue CSV
+              CSV
             </button>
             {completedRunExports.map((entry) => (
               <a
@@ -486,11 +487,11 @@ export default function ResultsView({
                 rel="noreferrer"
                 className="text-sm text-text-muted transition-colors hover:text-text-primary"
               >
-                Download {entry.format.toUpperCase()}
+                {entry.format.toUpperCase()}
               </a>
             ))}
           </div>
-          {exportMessage ? <p className="mt-3 text-sm text-text-muted">{exportMessage}</p> : null}
+          {exportMessage ? <p className="mt-2 text-sm text-text-muted">{exportMessage}</p> : null}
         </div>
       )}
     </div>
