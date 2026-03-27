@@ -1,21 +1,19 @@
 import { fetchArchiveSummaries, fetchLeaderboardData } from "./convex-server";
+import type { LeaderboardVotePhase } from "@/types";
 
 export async function getArchiveSummaries() {
   return fetchArchiveSummaries();
 }
 
-export async function getLeaderboardData() {
-  return fetchLeaderboardData();
+export async function getLeaderboardData(votePhase: LeaderboardVotePhase = "final") {
+  return fetchLeaderboardData(votePhase);
 }
 
 export async function getHomeStats() {
-  const [summaries, leaderboard] = await Promise.all([
-    fetchArchiveSummaries(),
-    fetchLeaderboardData(),
-  ]);
+  const leaderboard = await fetchLeaderboardData("final");
 
   return {
-    totalRuns: summaries.length,
+    totalRuns: leaderboard.totals.runs,
     totalIdeas: leaderboard.totals.ideas,
     totalCritiques: leaderboard.totals.critiques,
     totalModels: leaderboard.global.length,

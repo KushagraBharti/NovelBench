@@ -1,4 +1,10 @@
-import type { BenchmarkRun, LeaderboardData, LeaderboardEntry } from "@/types";
+import type {
+  BenchmarkRun,
+  LeaderboardData,
+  LeaderboardEntry,
+  LeaderboardVotePhase,
+  Ranking,
+} from "@/types";
 import { getModelIdentity } from "@/utils/model-identity";
 
 const FINAL_RANK_WEIGHT = 0.6;
@@ -19,7 +25,39 @@ function rankToPercentile(rank: number, participantCount: number) {
   return (participantCount - rank) / (participantCount - 1);
 }
 
-export function buildLeaderboardEntries(runs: BenchmarkRun[]): LeaderboardEntry[] {
+function getPhaseRankings(run: BenchmarkRun, votePhase: LeaderboardVotePhase): Ranking[] {
+  if (votePhase === "initial") {
+    return run.critiqueVotes
+      .filter((vote) => vote.rankings.length > 0)
+      .map((vote) => ({
+        judgeModelId: vote.fromModelId,
+        rankings: vote.rankings,
+      }));
+  }
+
+  return run.finalRankings.filter((ranking) => ranking.rankings.length > 0);
+}
+
+function getPhaseCandidateIds(run: BenchmarkRun, votePhase: LeaderboardVotePhase): string[] {
+  const phaseIdeas = votePhase === "initial" ? run.ideas : run.revisedIdeas;
+  return Array.from(
+    new Set([
+      ...phaseIdeas.map((idea) => idea.modelId),
+      ...getPhaseRankings(run, votePhase).flatMap((ranking) =>
+        ranking.rankings.map((entry) => entry.modelId),
+      ),
+    ]),
+  );
+}
+
+function isRankedRun(run: BenchmarkRun, votePhase: LeaderboardVotePhase) {
+  return getPhaseRankings(run, votePhase).length > 0 && getPhaseCandidateIds(run, votePhase).length > 1;
+}
+
+export function buildLeaderboardEntries(
+  runs: BenchmarkRun[],
+  votePhase: LeaderboardVotePhase,
+): LeaderboardEntry[] {
   const stats = new Map<
     string,
     {
@@ -35,18 +73,12 @@ export function buildLeaderboardEntries(runs: BenchmarkRun[]): LeaderboardEntry[
   >();
 
   for (const run of runs) {
-    if (run.finalRankings.length === 0) {
+    const phaseRankings = getPhaseRankings(run, votePhase);
+    if (phaseRankings.length === 0) {
       continue;
     }
 
-    const candidateIds = Array.from(
-      new Set([
-        ...run.revisedIdeas.map((idea) => idea.modelId),
-        ...run.finalRankings.flatMap((ranking) =>
-          ranking.rankings.map((entry) => entry.modelId),
-        ),
-      ]),
-    );
+    const candidateIds = getPhaseCandidateIds(run, votePhase);
     if (candidateIds.length === 0) {
       continue;
     }
@@ -54,7 +86,7 @@ export function buildLeaderboardEntries(runs: BenchmarkRun[]): LeaderboardEntry[
     const participantCount = candidateIds.length;
     const perModelFinals = new Map<string, { ranks: number[]; scores: number[] }>();
 
-    for (const ranking of run.finalRankings) {
+    for (const ranking of phaseRankings) {
       for (const entry of ranking.rankings) {
         if (!candidateIds.includes(entry.modelId)) {
           continue;
@@ -161,17 +193,25 @@ export function buildLeaderboardEntries(runs: BenchmarkRun[]): LeaderboardEntry[
     );
 }
 
-export function buildLeaderboardData(runs: BenchmarkRun[]): LeaderboardData {
+export function buildLeaderboardData(
+  runs: BenchmarkRun[],
+  votePhase: LeaderboardVotePhase = "final",
+): LeaderboardData {
   const completedRuns = runs.filter((run) => run.status === "complete" || run.status === "partial");
+  const rankedRuns = completedRuns.filter((run) => isRankedRun(run, votePhase));
   const byCategory: Record<string, LeaderboardEntry[]> = {};
   const categoryTotals: LeaderboardData["categoryTotals"] = {};
 
-  for (const categoryId of new Set(completedRuns.map((run) => run.categoryId))) {
-    const categoryRuns = completedRuns.filter((run) => run.categoryId === categoryId);
-    byCategory[categoryId] = buildLeaderboardEntries(categoryRuns);
+  for (const categoryId of new Set(rankedRuns.map((run) => run.categoryId))) {
+    const categoryRuns = rankedRuns.filter((run) => run.categoryId === categoryId);
+    byCategory[categoryId] = buildLeaderboardEntries(categoryRuns, votePhase);
     categoryTotals[categoryId] = {
       runs: categoryRuns.length,
-      ideas: categoryRuns.reduce((sum, run) => sum + run.ideas.length + run.revisedIdeas.length, 0),
+      ideas: categoryRuns.reduce(
+        (sum, run) =>
+          sum + (votePhase === "initial" ? run.ideas.length : run.ideas.length + run.revisedIdeas.length),
+        0,
+      ),
       critiques: categoryRuns.reduce(
         (sum, run) =>
           sum +
@@ -189,20 +229,25 @@ export function buildLeaderboardData(runs: BenchmarkRun[]): LeaderboardData {
   }
 
   return {
-    global: buildLeaderboardEntries(completedRuns),
+    votePhase,
+    global: buildLeaderboardEntries(rankedRuns, votePhase),
     byCategory,
     categoryTotals,
     totals: {
-      runs: runs.length,
-      ideas: runs.reduce((sum, run) => sum + run.ideas.length + run.revisedIdeas.length, 0),
-      critiques: runs.reduce(
+      runs: rankedRuns.length,
+      ideas: rankedRuns.reduce(
+        (sum, run) =>
+          sum + (votePhase === "initial" ? run.ideas.length : run.ideas.length + run.revisedIdeas.length),
+        0,
+      ),
+      critiques: rankedRuns.reduce(
         (sum, run) =>
           sum +
           run.critiqueVotes.reduce((voteSum, vote) => voteSum + vote.critiques.length, 0) +
           run.humanCritiques.length,
         0,
       ),
-      completedModels: runs.reduce(
+      completedModels: rankedRuns.reduce(
         (sum, run) =>
           sum +
           Object.values(run.modelStates).filter((state) => state.status === "complete").length,

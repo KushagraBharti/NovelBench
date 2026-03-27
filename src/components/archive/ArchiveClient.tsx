@@ -11,6 +11,8 @@ interface ArchiveClientProps {
   runs: BenchmarkRunSummary[];
   nextCursor: string | null;
   hasMore: boolean;
+  totalMatchingRuns: number;
+  categoryCounts: Record<string, number>;
   filters: {
     query: string;
     categoryId: string;
@@ -32,8 +34,19 @@ function buildArchiveHref(args: ArchiveClientProps["filters"] & { cursor?: strin
   return query ? `/archive?${query}` : "/archive";
 }
 
-export default function ArchiveClient({ runs, nextCursor, hasMore, filters }: ArchiveClientProps) {
-  const categories = useMemo(() => Array.from(new Set(runs.map((run) => run.categoryId))).sort(), [runs]);
+export default function ArchiveClient({
+  runs,
+  nextCursor,
+  hasMore,
+  totalMatchingRuns,
+  categoryCounts,
+  filters,
+}: ArchiveClientProps) {
+  const categories = useMemo(() => Object.keys(categoryCounts).sort(), [categoryCounts]);
+  const allRunsCount = useMemo(
+    () => Object.values(categoryCounts).reduce((sum, count) => sum + count, 0) || totalMatchingRuns,
+    [categoryCounts, totalMatchingRuns],
+  );
 
   if (runs.length === 0) {
     return (
@@ -133,11 +146,11 @@ export default function ArchiveClient({ runs, nextCursor, hasMore, filters }: Ar
             )}
           >
             <span className="w-1.5 h-1.5 rounded-full bg-accent" />
-            All runs ({runs.length})
+            All runs ({allRunsCount})
           </Link>
           {categories.map((catId) => {
             const identity = getCategoryIdentity(catId);
-            const count = runs.filter((run) => run.categoryId === catId).length;
+            const count = categoryCounts[catId] ?? 0;
             return (
               <Link
                 key={catId}

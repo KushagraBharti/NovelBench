@@ -413,6 +413,210 @@ async function collectVisibleRunSummariesPage(
   };
 }
 
+function matchesRunSearchDocFilters(
+  searchDoc: Doc<"runSearchDocs">,
+  args: {
+    categoryId?: string;
+    status?: string;
+    visibility?: Doc<"runs">["visibility"];
+    createdAfter?: number;
+    createdBefore?: number;
+  },
+  options?: {
+    ignoreCategory?: boolean;
+  },
+) {
+  if (args.visibility && searchDoc.visibility !== args.visibility) {
+    return false;
+  }
+  if (!options?.ignoreCategory && args.categoryId && searchDoc.categoryId !== args.categoryId) {
+    return false;
+  }
+  if (args.status && searchDoc.status !== args.status) {
+    return false;
+  }
+  return matchesCreatedAtRange(searchDoc.createdAt, args.createdAfter, args.createdBefore);
+}
+
+function buildRunSearchDocsBaseQuery(
+  ctx: QueryCtx,
+  args: {
+    organizationId?: Id<"organizations">;
+    projectId?: Id<"projects">;
+    categoryId?: string;
+    status?: string;
+    visibility?: Doc<"runs">["visibility"];
+  },
+  options?: {
+    ignoreCategory?: boolean;
+  },
+) {
+  if (args.projectId) {
+    return ctx.db
+      .query("runSearchDocs")
+      .withIndex("by_project_and_created_at", (q) => q.eq("projectId", args.projectId!));
+  }
+  if (args.organizationId) {
+    return ctx.db
+      .query("runSearchDocs")
+      .withIndex("by_org_and_created_at", (q) => q.eq("organizationId", args.organizationId!));
+  }
+  if (args.visibility) {
+    return ctx.db
+      .query("runSearchDocs")
+      .withIndex("by_visibility_and_created_at", (q) => q.eq("visibility", args.visibility!));
+  }
+  if (args.status) {
+    return ctx.db
+      .query("runSearchDocs")
+      .withIndex("by_status_and_created_at", (q) => q.eq("status", args.status! as any));
+  }
+  if (!options?.ignoreCategory && args.categoryId) {
+    return ctx.db
+      .query("runSearchDocs")
+      .withIndex("by_category_and_created_at", (q) => q.eq("categoryId", args.categoryId!));
+  }
+  return ctx.db.query("runSearchDocs").withIndex("by_created_at");
+}
+
+async function collectVisibleRunSearchDocsPage(
+  ctx: QueryCtx,
+  args: {
+    paginationOpts: { numItems: number; cursor: string | null };
+    categoryId?: string;
+    status?: string;
+    visibility?: Doc<"runs">["visibility"];
+    createdAfter?: number;
+    createdBefore?: number;
+  },
+  fetchPage: (paginationOpts: { numItems: number; cursor: string | null }) => Promise<{
+    page: Doc<"runSearchDocs">[];
+    isDone: boolean;
+    continueCursor: string | null;
+  }>,
+  options?: {
+    extraFilter?: (searchDoc: Doc<"runSearchDocs">) => boolean;
+  },
+) {
+  const viewerUserId = await getAuthUserId(ctx);
+  const results: BenchmarkRunSummary[] = [];
+  let cursor = args.paginationOpts.cursor;
+  let isDone = false;
+
+  while (results.length < args.paginationOpts.numItems && !isDone) {
+    const pageResult = await fetchPage({
+      numItems: args.paginationOpts.numItems,
+      cursor,
+    });
+
+    for (const searchDoc of pageResult.page) {
+      if (!matchesRunSearchDocFilters(searchDoc, args)) {
+        continue;
+      }
+      if (options?.extraFilter && !options.extraFilter(searchDoc)) {
+        continue;
+      }
+
+      const run = await ctx.db.get(searchDoc.runId);
+      if (!run) {
+        continue;
+      }
+
+      const membership = viewerUserId
+        ? await getProjectMembership(ctx, viewerUserId, run.projectId)
+        : null;
+      const organizationMembership = viewerUserId
+        ? await getOrganizationMembership(ctx, viewerUserId, run.organizationId)
+        : null;
+      if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
+        continue;
+      }
+
+      results.push(runSummaryFromSearchDoc(searchDoc, run));
+      if (results.length >= args.paginationOpts.numItems) {
+        break;
+      }
+    }
+
+    cursor = pageResult.continueCursor;
+    isDone = pageResult.isDone;
+  }
+
+  return {
+    page: results,
+    isDone,
+    continueCursor: cursor,
+  };
+}
+
+async function collectVisibleRunSearchDocMetrics(
+  ctx: QueryCtx,
+  args: {
+    categoryId?: string;
+    status?: string;
+    visibility?: Doc<"runs">["visibility"];
+    createdAfter?: number;
+    createdBefore?: number;
+  },
+  fetchPage: (paginationOpts: { numItems: number; cursor: string | null }) => Promise<{
+    page: Doc<"runSearchDocs">[];
+    isDone: boolean;
+    continueCursor: string | null;
+  }>,
+  options?: {
+    ignoreCategory?: boolean;
+    extraFilter?: (searchDoc: Doc<"runSearchDocs">) => boolean;
+  },
+) {
+  const viewerUserId = await getAuthUserId(ctx);
+  const categoryCounts: Record<string, number> = {};
+  let totalMatchingRuns = 0;
+  let cursor: string | null = null;
+  let isDone = false;
+
+  while (!isDone) {
+    const pageResult = await fetchPage({
+      numItems: 50,
+      cursor,
+    });
+
+    for (const searchDoc of pageResult.page) {
+      if (!matchesRunSearchDocFilters(searchDoc, args, options)) {
+        continue;
+      }
+      if (options?.extraFilter && !options.extraFilter(searchDoc)) {
+        continue;
+      }
+
+      const run = await ctx.db.get(searchDoc.runId);
+      if (!run) {
+        continue;
+      }
+
+      const membership = viewerUserId
+        ? await getProjectMembership(ctx, viewerUserId, run.projectId)
+        : null;
+      const organizationMembership = viewerUserId
+        ? await getOrganizationMembership(ctx, viewerUserId, run.organizationId)
+        : null;
+      if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
+        continue;
+      }
+
+      totalMatchingRuns += 1;
+      categoryCounts[searchDoc.categoryId] = (categoryCounts[searchDoc.categoryId] ?? 0) + 1;
+    }
+
+    cursor = pageResult.continueCursor;
+    isDone = pageResult.isDone;
+  }
+
+  return {
+    totalMatchingRuns,
+    categoryCounts,
+  };
+}
+
 function runSummaryFromSearchDoc(
   searchDoc: Doc<"runSearchDocs">,
   run: Doc<"runs">,
@@ -528,60 +732,29 @@ export const list = query({
   },
   returns: v.any(),
   handler: async (ctx, args) => {
-    let baseQuery: any;
-    if (args.projectId) {
-      baseQuery = ctx.db
-        .query("runSearchDocs")
-        .withIndex("by_project_and_created_at", (q) => q.eq("projectId", args.projectId!));
-    } else if (args.organizationId) {
-      baseQuery = ctx.db
-        .query("runSearchDocs")
-        .withIndex("by_org_and_created_at", (q) => q.eq("organizationId", args.organizationId!));
-    } else if (args.visibility) {
-      baseQuery = ctx.db
-        .query("runSearchDocs")
-        .withIndex("by_visibility_and_created_at", (q) => q.eq("visibility", args.visibility!));
-    } else if (args.status) {
-      baseQuery = ctx.db
-        .query("runSearchDocs")
-        .withIndex("by_status_and_created_at", (q) => q.eq("status", args.status! as any));
-    } else if (args.categoryId) {
-      baseQuery = ctx.db
-        .query("runSearchDocs")
-        .withIndex("by_category_and_created_at", (q) => q.eq("categoryId", args.categoryId!));
-    } else {
-      baseQuery = ctx.db.query("runSearchDocs").withIndex("by_created_at");
-    }
-
-    const page = await baseQuery.order("desc").paginate(args.paginationOpts);
-    const viewerUserId = await getAuthUserId(ctx);
-    const summaries = await Promise.all(
-      (page.page as Doc<"runSearchDocs">[])
-        .filter((entry) => {
-          if (args.visibility && entry.visibility !== args.visibility) return false;
-          if (args.categoryId && entry.categoryId !== args.categoryId) return false;
-          if (args.status && entry.status !== args.status) return false;
-          return matchesCreatedAtRange(entry.createdAt, args.createdAfter, args.createdBefore);
-        })
-        .map(async (entry) => {
-          const run = await ctx.db.get(entry.runId);
-          if (!run) return null;
-          const membership = viewerUserId
-            ? await getProjectMembership(ctx, viewerUserId, run.projectId)
-            : null;
-          const organizationMembership = viewerUserId
-            ? await getOrganizationMembership(ctx, viewerUserId, run.organizationId)
-            : null;
-          if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
-            return null;
-          }
-          return runSummaryFromSearchDoc(entry, run);
-        }),
+    const baseQuery = buildRunSearchDocsBaseQuery(ctx, args);
+    const page = await collectVisibleRunSearchDocsPage(ctx, args, (paginationOpts) =>
+      baseQuery.order("desc").paginate(paginationOpts),
     );
+    const [filteredMetrics, allCategoryMetrics] = await Promise.all([
+      collectVisibleRunSearchDocMetrics(ctx, args, (paginationOpts) =>
+        baseQuery.order("desc").paginate(paginationOpts),
+      ),
+      collectVisibleRunSearchDocMetrics(
+        ctx,
+        args,
+        (paginationOpts) =>
+          buildRunSearchDocsBaseQuery(ctx, args, { ignoreCategory: true })
+            .order("desc")
+            .paginate(paginationOpts),
+        { ignoreCategory: true },
+      ),
+    ]);
 
     return {
       ...page,
-      page: summaries.filter(Boolean),
+      totalMatchingRuns: filteredMetrics.totalMatchingRuns,
+      categoryCounts: allCategoryMetrics.categoryCounts,
     };
   },
 });
@@ -700,8 +873,9 @@ export const search = query({
         };
 
     const normalizedQuery = args.query.trim().toLowerCase();
-    const searchQuery = ((ctx.db.query("runSearchDocs") as any)
-      .withSearchIndex("search_prompt", (q: any) => {
+    const buildSearchQuery = (categoryId?: string) =>
+      ((ctx.db.query("runSearchDocs") as any)
+        .withSearchIndex("search_prompt", (q: any) => {
         let next = q.search("promptSearchText", args.query);
         if (args.visibility) {
           next = next.eq("visibility", args.visibility);
@@ -712,8 +886,8 @@ export const search = query({
         if (args.projectId) {
           next = next.eq("projectId", args.projectId);
         }
-        if (args.categoryId) {
-          next = next.eq("categoryId", args.categoryId);
+        if (categoryId) {
+          next = next.eq("categoryId", categoryId);
         }
         if (args.status) {
           next = next.eq("status", args.status as any);
@@ -721,120 +895,74 @@ export const search = query({
         return next;
       })) as any;
 
-    const viewerUserId = await getAuthUserId(ctx);
-    const results: BenchmarkRunSummary[] = [];
-    let cursor = paginationOpts.cursor;
-    let isDone = false;
-
     try {
-      while (results.length < paginationOpts.numItems && !isDone) {
-        const matchesPage = await searchQuery.paginate({
-          numItems: paginationOpts.numItems,
-          cursor,
-        });
+      const searchQuery = buildSearchQuery(args.categoryId);
+      const fetchSearchPage = (nextPaginationOpts: { numItems: number; cursor: string | null }) =>
+        searchQuery.paginate(nextPaginationOpts);
+      const page = await collectVisibleRunSearchDocsPage(
+        ctx,
+        {
+          ...args,
+          paginationOpts,
+        },
+        fetchSearchPage,
+      );
+      const [filteredMetrics, allCategoryMetrics] = await Promise.all([
+        collectVisibleRunSearchDocMetrics(ctx, args, fetchSearchPage),
+        collectVisibleRunSearchDocMetrics(
+          ctx,
+          { ...args, categoryId: undefined },
+          (nextPaginationOpts) => buildSearchQuery(undefined).paginate(nextPaginationOpts),
+        ),
+      ]);
 
-        for (const match of matchesPage.page as Doc<"runSearchDocs">[]) {
-          const run = await ctx.db.get(match.runId);
-          if (!run) {
-            continue;
-          }
-          if (args.visibility && run.visibility !== args.visibility) {
-            continue;
-          }
-          if (!matchesCreatedAtRange(run.createdAt, args.createdAfter, args.createdBefore)) {
-            continue;
-          }
-          const membership = viewerUserId
-            ? await getProjectMembership(ctx, viewerUserId, run.projectId)
-            : null;
-          const organizationMembership = viewerUserId
-            ? await getOrganizationMembership(ctx, viewerUserId, run.organizationId)
-            : null;
-          if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
-            continue;
-          }
-          results.push(runSummaryFromSearchDoc(match, run));
-          if (results.length >= paginationOpts.numItems) {
-            break;
-          }
-        }
-
-        cursor = matchesPage.continueCursor;
-        isDone = matchesPage.isDone;
-      }
+      return {
+        ...page,
+        totalMatchingRuns: filteredMetrics.totalMatchingRuns,
+        categoryCounts: allCategoryMetrics.categoryCounts,
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!message.includes("is currently staged and not available to query")) {
         throw error;
       }
 
-      let baseQuery: any;
-      if (args.projectId) {
-        baseQuery = ctx.db
-          .query("runSearchDocs")
-          .withIndex("by_project_and_created_at", (q) => q.eq("projectId", args.projectId!));
-      } else if (args.organizationId) {
-        baseQuery = ctx.db
-          .query("runSearchDocs")
-          .withIndex("by_org_and_created_at", (q) => q.eq("organizationId", args.organizationId!));
-      } else if (args.visibility) {
-        baseQuery = ctx.db
-          .query("runSearchDocs")
-          .withIndex("by_visibility_and_created_at", (q) => q.eq("visibility", args.visibility!));
-      } else if (args.status) {
-        baseQuery = ctx.db
-          .query("runSearchDocs")
-          .withIndex("by_status_and_created_at", (q) => q.eq("status", args.status! as any));
-      } else if (args.categoryId) {
-        baseQuery = ctx.db
-          .query("runSearchDocs")
-          .withIndex("by_category_and_created_at", (q) => q.eq("categoryId", args.categoryId!));
-      } else {
-        baseQuery = ctx.db.query("runSearchDocs").withIndex("by_created_at");
-      }
-
-      const page = await baseQuery.order("desc").paginate(paginationOpts);
-      const fallbackSummaries = await Promise.all(
-        (page.page as Doc<"runSearchDocs">[])
-          .filter((entry) => {
-            if (!matchesCreatedAtRange(entry.createdAt, args.createdAfter, args.createdBefore)) {
-              return false;
-            }
-            if (!entry.promptSearchText.includes(normalizedQuery)) {
-              return false;
-            }
-            if (args.visibility && entry.visibility !== args.visibility) return false;
-            if (args.categoryId && entry.categoryId !== args.categoryId) return false;
-            if (args.status && entry.status !== args.status) return false;
-            return true;
-          })
-          .map(async (entry) => {
-            const run = await ctx.db.get(entry.runId);
-            if (!run) return null;
-            const membership = viewerUserId
-              ? await getProjectMembership(ctx, viewerUserId, run.projectId)
-              : null;
-            const organizationMembership = viewerUserId
-              ? await getOrganizationMembership(ctx, viewerUserId, run.organizationId)
-              : null;
-            if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
-              return null;
-            }
-            return runSummaryFromSearchDoc(entry, run);
-          }),
+      const baseQuery = buildRunSearchDocsBaseQuery(ctx, args);
+      const extraFilter = (searchDoc: Doc<"runSearchDocs">) =>
+        searchDoc.promptSearchText.includes(normalizedQuery);
+      const page = await collectVisibleRunSearchDocsPage(
+        ctx,
+        {
+          ...args,
+          paginationOpts,
+        },
+        (nextPaginationOpts) => baseQuery.order("desc").paginate(nextPaginationOpts),
+        { extraFilter },
       );
+      const [filteredMetrics, allCategoryMetrics] = await Promise.all([
+        collectVisibleRunSearchDocMetrics(
+          ctx,
+          args,
+          (nextPaginationOpts) => baseQuery.order("desc").paginate(nextPaginationOpts),
+          { extraFilter },
+        ),
+        collectVisibleRunSearchDocMetrics(
+          ctx,
+          { ...args, categoryId: undefined },
+          (nextPaginationOpts) =>
+            buildRunSearchDocsBaseQuery(ctx, args, { ignoreCategory: true })
+              .order("desc")
+              .paginate(nextPaginationOpts),
+          { extraFilter },
+        ),
+      ]);
 
       return {
         ...page,
-        page: fallbackSummaries.filter(Boolean),
+        totalMatchingRuns: filteredMetrics.totalMatchingRuns,
+        categoryCounts: allCategoryMetrics.categoryCounts,
       };
     }
-
-    return {
-      page: results,
-      isDone,
-      continueCursor: cursor,
-    };
   },
 });
 

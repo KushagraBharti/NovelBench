@@ -93,6 +93,7 @@ describe("results loaders", () => {
       },
     ]);
     fetchLeaderboard.mockResolvedValue({
+      votePhase: "final",
       global: [
         {
           modelId: "b",
@@ -126,9 +127,10 @@ describe("results loaders", () => {
     });
 
     const { getHomeStats, getLeaderboardData } = await import("@/lib/results");
-    const leaderboard = await getLeaderboardData();
+    const leaderboard = await getLeaderboardData("final");
     const stats = await getHomeStats();
 
+    expect(fetchLeaderboard).toHaveBeenCalledWith("final");
     expect(leaderboard.totals.ideas).toBe(4);
     expect(leaderboard.totals.critiques).toBe(1);
     expect(stats.totalRuns).toBe(1);

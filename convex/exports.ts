@@ -11,6 +11,7 @@ import {
   JOB_TYPES,
   startJobAttempt,
 } from "./lib/jobs";
+import type { LeaderboardVotePhase } from "@/types";
 
 const exportFormatValidator = v.union(v.literal("json"), v.literal("csv"));
 const exportScopeTypeValidator = v.union(
@@ -18,6 +19,11 @@ const exportScopeTypeValidator = v.union(
   v.literal("project_summary"),
   v.literal("leaderboard"),
 );
+const votePhaseValidator = v.union(v.literal("initial"), v.literal("final"));
+
+function toLeaderboardScopeKey(categoryId?: string, votePhase: LeaderboardVotePhase = "final") {
+  return categoryId ? `category:${categoryId}:${votePhase}` : `global:${votePhase}`;
+}
 
 function toExportView(
   artifact: Doc<"runArtifacts"> | null,
@@ -105,10 +111,11 @@ export const listByProject = query({
 export const listLeaderboard = query({
   args: {
     categoryId: v.optional(v.string()),
+    votePhase: v.optional(votePhaseValidator),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
-    const scopeKey = args.categoryId ? `category:${args.categoryId}` : "global";
+    const scopeKey = toLeaderboardScopeKey(args.categoryId, args.votePhase ?? "final");
     const exports = await ctx.db
       .query("exports")
       .withIndex("by_scope_type_and_scope_key_and_created_at", (q) =>
@@ -351,6 +358,7 @@ export const requestLeaderboardExport = mutation({
   args: {
     format: exportFormatValidator,
     categoryId: v.optional(v.string()),
+    votePhase: v.optional(votePhaseValidator),
   },
   returns: v.any(),
   handler: async (ctx, args) => {
@@ -359,7 +367,8 @@ export const requestLeaderboardExport = mutation({
       throw new ConvexError("No default organization is configured");
     }
 
-    const scopeKey = args.categoryId ? `category:${args.categoryId}` : "global";
+    const votePhase = args.votePhase ?? "final";
+    const scopeKey = toLeaderboardScopeKey(args.categoryId, votePhase);
     const existing = await ctx.db
       .query("exports")
       .withIndex("by_scope_type_and_scope_key_and_created_at", (q) =>
@@ -412,6 +421,7 @@ export const requestLeaderboardExport = mutation({
         format: args.format,
         scopeType: "leaderboard",
         categoryId: args.categoryId,
+        votePhase,
       },
     });
 
@@ -448,6 +458,7 @@ export const requestLeaderboardExport = mutation({
       metadata: {
         format: args.format,
         categoryId: args.categoryId,
+        votePhase,
       },
       createdAt: now,
     });
@@ -575,15 +586,20 @@ export const getExportBundleInternal = internalQuery({
     }
 
     if (exportDoc.scopeType === "leaderboard") {
+      const votePhase =
+        exportDoc.scopeKey?.endsWith(":initial") ? ("initial" as const) : ("final" as const);
       const globalSnapshot: any = await ctx.runQuery(internal.leaderboards.getSnapshotInternal, {
         categoryId: undefined,
+        votePhase,
       });
       const scopedSnapshot: any = await ctx.runQuery(internal.leaderboards.getSnapshotInternal, {
         categoryId: exportDoc.categoryId,
+        votePhase,
       });
       return {
         scopeType: "leaderboard",
         exportDoc,
+        votePhase,
         globalSnapshot,
         scopedSnapshot,
       };

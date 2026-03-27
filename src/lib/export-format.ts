@@ -131,7 +131,7 @@ export function buildLeaderboardCsv(categoryId: string | null, data: Leaderboard
     entry.averageFinishPercentile,
   ]);
 
-  return [["scope", categoryId ?? "global"], headers, ...rows]
+  return [["scope", categoryId ?? "global"], ["votePhase", data.votePhase], headers, ...rows]
     .map((row) => row.map((value) => csvEscape(value)).join(","))
     .join("\n");
 }

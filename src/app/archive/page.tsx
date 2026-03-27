@@ -35,7 +35,7 @@ export default async function ArchivePage({
         <div>
           <h1 className="font-display text-4xl sm:text-5xl text-text-primary">Archive</h1>
           <p className="text-text-secondary text-base mt-2">
-            Browse all past benchmark runs
+            Browse {page.totalMatchingRuns} past benchmark run{page.totalMatchingRuns === 1 ? "" : "s"}
           </p>
         </div>
         <Link href="/arena" className="text-base text-text-muted hover:text-accent transition-colors">
@@ -47,6 +47,8 @@ export default async function ArchivePage({
         runs={page.page}
         nextCursor={page.continueCursor}
         hasMore={!page.isDone}
+        totalMatchingRuns={page.totalMatchingRuns}
+        categoryCounts={page.categoryCounts}
         filters={{
           query: query ?? "",
           categoryId: categoryId ?? "all",

@@ -3,10 +3,12 @@ import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { api } from "../../convex/_generated/api";
 import { categories } from "./categories";
 import type {
+  ArchivePageData,
   BenchmarkRun,
   BenchmarkRunSummary,
   HumanCritiqueEntry,
   LeaderboardData,
+  LeaderboardVotePhase,
   RunExportEntry,
 } from "@/types";
 
@@ -32,7 +34,7 @@ export interface ArchiveFilters {
   numItems?: number;
 }
 
-export async function fetchArchivePage(filters: ArchiveFilters = {}) {
+export async function fetchArchivePage(filters: ArchiveFilters = {}): Promise<ArchivePageData> {
   const paginationOpts = {
     numItems: Math.min(Math.max(filters.numItems ?? 25, 1), 50),
     cursor: filters.cursor ?? null,
@@ -53,11 +55,7 @@ export async function fetchArchivePage(filters: ArchiveFilters = {}) {
         createdBefore: filters.createdBefore,
       },
       await authOptions(),
-    )) as {
-      page: BenchmarkRunSummary[];
-      isDone: boolean;
-      continueCursor: string | null;
-    };
+    )) as ArchivePageData;
   }
 
   return (await fetchQuery(
@@ -73,11 +71,7 @@ export async function fetchArchivePage(filters: ArchiveFilters = {}) {
       createdBefore: filters.createdBefore,
     },
     await authOptions(),
-  )) as {
-    page: BenchmarkRunSummary[];
-    isDone: boolean;
-    continueCursor: string | null;
-  };
+  )) as ArchivePageData;
 }
 
 export async function fetchArchiveSummaries(): Promise<BenchmarkRunSummary[]> {
@@ -99,16 +93,15 @@ export async function fetchArchiveSummaries(): Promise<BenchmarkRunSummary[]> {
   return results;
 }
 
-export async function fetchLeaderboardData(): Promise<LeaderboardData> {
-  const [global, archiveSummaries] = await Promise.all([
-    fetchQuery(api.leaderboards.get, {}, await authOptions()),
-    fetchArchiveSummaries(),
-  ]);
+export async function fetchLeaderboardData(
+  votePhase: LeaderboardVotePhase = "final",
+): Promise<LeaderboardData> {
+  const global = await fetchQuery(api.leaderboards.get, { votePhase }, await authOptions());
   const byCategoryEntries = await Promise.all(
     categories.map(async (category) => {
       const snapshot = await fetchQuery(
         api.leaderboards.get,
-        { categoryId: category.id },
+        { categoryId: category.id, votePhase },
         await authOptions(),
       );
       return [
@@ -120,26 +113,15 @@ export async function fetchLeaderboardData(): Promise<LeaderboardData> {
       ] as const;
     }),
   );
-  const categoryTotals = archiveSummaries
-    .filter((run) => run.status === "complete" || run.status === "partial")
-    .reduce<LeaderboardData["categoryTotals"]>((acc, run) => {
-      const current = acc[run.categoryId] ?? {
-        runs: 0,
-        ideas: 0,
-        critiques: 0,
-        completedModels: 0,
-      };
-      current.runs += 1;
-      acc[run.categoryId] = current;
-      return acc;
-    }, {});
-
   return {
+    votePhase,
     global: global.entries,
     byCategory: Object.fromEntries(
       byCategoryEntries.map(([categoryId, snapshot]) => [categoryId, snapshot.entries]),
     ),
-    categoryTotals,
+    categoryTotals: Object.fromEntries(
+      byCategoryEntries.map(([categoryId, snapshot]) => [categoryId, snapshot.totals]),
+    ),
     totals: global.totals,
   };
 }
@@ -234,18 +216,22 @@ export async function listProjectExportsServer(projectId: string) {
 export async function requestLeaderboardExportServer(
   format: "json" | "csv",
   categoryId?: string,
+  votePhase?: LeaderboardVotePhase,
 ) {
   return fetchMutation(
     api.exports.requestLeaderboardExport,
-    { format, categoryId },
+    { format, categoryId, votePhase },
     await authOptions(),
   ) as Promise<RunExportEntry>;
 }
 
-export async function listLeaderboardExportsServer(categoryId?: string) {
+export async function listLeaderboardExportsServer(
+  categoryId?: string,
+  votePhase?: LeaderboardVotePhase,
+) {
   return fetchQuery(
     api.exports.listLeaderboard,
-    { categoryId },
+    { categoryId, votePhase },
     await authOptions(),
   ) as Promise<RunExportEntry[]>;
 }

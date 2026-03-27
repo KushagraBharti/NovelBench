@@ -112,7 +112,9 @@ const generateExportFileHandler = async (
       format: "json" | "csv";
       categoryId?: string;
     };
+    const votePhase = bundle.votePhase ?? "final";
     const data: LeaderboardData = {
+      votePhase,
       global: bundle.globalSnapshot?.entries ?? [],
       byCategory:
         exportDoc.categoryId && bundle.scopedSnapshot
@@ -142,7 +144,10 @@ const generateExportFileHandler = async (
     const contentType = exportDoc.format === "json" ? "application/json" : "text/csv";
     const { blob, sizeBytes } = toStoragePayload(content, contentType);
     const storageId = await ctx.storage.store(blob);
-    const scopeLabel = exportDoc.categoryId ? `${exportDoc.categoryId} leaderboard` : "Global leaderboard";
+    const phaseLabel = votePhase === "initial" ? "1st vote" : "Final vote";
+    const scopeLabel = exportDoc.categoryId
+      ? `${exportDoc.categoryId} leaderboard (${phaseLabel})`
+      : `Global leaderboard (${phaseLabel})`;
 
     return {
       storageId,

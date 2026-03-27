@@ -5,23 +5,41 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
-import { LeaderboardData, RunExportEntry } from "@/types";
+import { LeaderboardData, LeaderboardVotePhase, RunExportEntry } from "@/types";
 import RankingsTable from "@/components/leaderboard/RankingsTable";
 import CategoryFilter from "@/components/leaderboard/CategoryFilter";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
 
-export default function LeaderboardClient({ data }: { data: LeaderboardData }) {
+const votePhaseLabels: Record<LeaderboardVotePhase, string> = {
+  final: "Final vote",
+  initial: "1st vote",
+};
+
+export default function LeaderboardClient({
+  finalData,
+  initialData,
+}: {
+  finalData: LeaderboardData;
+  initialData: LeaderboardData;
+}) {
   const { isAuthenticated } = useConvexAuth();
   const [selectedCategory, setSelectedCategory] = useState("all");
+  const [selectedVotePhase, setSelectedVotePhase] = useState<LeaderboardVotePhase>("final");
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const data = selectedVotePhase === "final" ? finalData : initialData;
   const requestLeaderboardExport = useMutation(api.exports.requestLeaderboardExport);
   const leaderboardExports = useQuery(
     api.exports.listLeaderboard,
     isAuthenticated
-      ? { categoryId: selectedCategory === "all" ? undefined : selectedCategory }
+      ? {
+          categoryId: selectedCategory === "all" ? undefined : selectedCategory,
+          votePhase: selectedVotePhase,
+        }
       : "skip",
   );
-  const categoryIds = Object.keys(data.byCategory).sort();
+  const categoryIds = Array.from(
+    new Set([...Object.keys(finalData.byCategory), ...Object.keys(initialData.byCategory)]),
+  ).sort();
   const totalRuns = data.totals.runs;
   const topModel = data.global[0];
   const completedExports = ((leaderboardExports ?? []) as RunExportEntry[]).filter(
@@ -37,6 +55,7 @@ export default function LeaderboardClient({ data }: { data: LeaderboardData }) {
     void requestLeaderboardExport({
       format,
       categoryId: selectedCategory === "all" ? undefined : selectedCategory,
+      votePhase: selectedVotePhase,
     })
       .then(() => setExportMessage(`${format.toUpperCase()} leaderboard export queued.`))
       .catch((error) => {
@@ -91,26 +110,44 @@ export default function LeaderboardClient({ data }: { data: LeaderboardData }) {
       </div>
 
       {/* Category filter */}
-      <CategoryFilter
-        categories={categoryIds}
-        selected={selectedCategory}
-        onSelect={setSelectedCategory}
-        totalRuns={totalRuns}
-        getCategoryRuns={getCategoryRuns}
-      />
+      <div className="flex flex-col gap-4 border-b border-border pb-4">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          {(["final", "initial"] as const).map((phase) => (
+            <button
+              key={phase}
+              type="button"
+              onClick={() => setSelectedVotePhase(phase)}
+              className={
+                selectedVotePhase === phase
+                  ? "text-sm uppercase tracking-[0.18em] text-text-primary transition-colors"
+                  : "text-sm uppercase tracking-[0.18em] text-text-muted transition-colors hover:text-text-secondary"
+              }
+            >
+              {votePhaseLabels[phase]}
+            </button>
+          ))}
+        </div>
+        <CategoryFilter
+          categories={categoryIds}
+          selected={selectedCategory}
+          onSelect={setSelectedCategory}
+          totalRuns={totalRuns}
+          getCategoryRuns={getCategoryRuns}
+        />
+      </div>
 
       {/* Rankings */}
       {selectedCategory === "all" ? (
         <RankingsTable
           entries={data.global}
           title="Global Leaderboard"
-          subtitle={`Composite standing across ${totalRuns} benchmark${totalRuns === 1 ? "" : "s"}`}
+          subtitle={`${votePhaseLabels[selectedVotePhase]} standing across ${totalRuns} ranked benchmark${totalRuns === 1 ? "" : "s"}`}
         />
       ) : (
         <RankingsTable
           entries={data.byCategory[selectedCategory] || []}
           title={`${selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)} Leaderboard`}
-          subtitle={`${getCategoryRuns(selectedCategory)} run${getCategoryRuns(selectedCategory) === 1 ? "" : "s"} in this category`}
+          subtitle={`${votePhaseLabels[selectedVotePhase]} standing across ${getCategoryRuns(selectedCategory)} ranked benchmark${getCategoryRuns(selectedCategory) === 1 ? "" : "s"} in this category`}
         />
       )}
 

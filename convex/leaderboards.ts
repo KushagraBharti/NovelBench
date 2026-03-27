@@ -2,6 +2,13 @@ import { ConvexError, v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { buildLeaderboardData } from "./lib/leaderboard";
 import { runDocsToBenchmarkRun } from "./lib/runHelpers";
+import type { BenchmarkRun, LeaderboardVotePhase } from "@/types";
+
+const votePhaseValidator = v.union(v.literal("initial"), v.literal("final"));
+
+function toSnapshotKey(categoryId?: string, votePhase: LeaderboardVotePhase = "final") {
+  return categoryId ? `category:${categoryId}:${votePhase}` : `global:${votePhase}`;
+}
 
 async function collectRunsByStatus(
   ctx: Parameters<typeof query>[0] extends never ? never : any,
@@ -25,16 +32,19 @@ async function collectRunsByStatus(
 export const get = query({
   args: {
     categoryId: v.optional(v.string()),
+    votePhase: v.optional(votePhaseValidator),
   },
   returns: v.any(),
   handler: async (ctx, args) => {
-    const snapshotKey = args.categoryId ? `category:${args.categoryId}` : "global";
+    const votePhase = args.votePhase ?? "final";
+    const snapshotKey = toSnapshotKey(args.categoryId, votePhase);
     const snapshot = await ctx.db
       .query("leaderboardSnapshots")
       .withIndex("by_snapshot_key", (q) => q.eq("snapshotKey", snapshotKey))
       .unique();
     if (!snapshot) {
       return {
+        votePhase,
         entries: [],
         categoryTotals: {},
         totals: {
@@ -47,6 +57,7 @@ export const get = query({
       };
     }
     return {
+      votePhase,
       entries: snapshot.entries,
       categoryTotals: snapshot.scopeValue
         ? { [snapshot.scopeValue]: snapshot.totals }
@@ -60,10 +71,11 @@ export const get = query({
 export const getSnapshotInternal = internalQuery({
   args: {
     categoryId: v.optional(v.string()),
+    votePhase: v.optional(votePhaseValidator),
   },
   returns: v.any(),
   handler: async (ctx, args) => {
-    const snapshotKey = args.categoryId ? `category:${args.categoryId}` : "global";
+    const snapshotKey = toSnapshotKey(args.categoryId, args.votePhase ?? "final");
     const snapshot = await ctx.db
       .query("leaderboardSnapshots")
       .withIndex("by_snapshot_key", (q) => q.eq("snapshotKey", snapshotKey))
@@ -83,7 +95,7 @@ export const rebuildSnapshotsInternal = internalMutation({
       collectRunsByStatus(ctx, "partial"),
     ]);
     const runs = [...completeRuns, ...partialRuns];
-    const hydrated = [];
+    const hydrated: BenchmarkRun[] = [];
 
     for (const run of runs) {
       const [participants, events] = await Promise.all([
@@ -96,29 +108,31 @@ export const rebuildSnapshotsInternal = internalMutation({
       hydrated.push(runDocsToBenchmarkRun({ run, participants, events }));
     }
 
-    const leaderboard = buildLeaderboardData(hydrated);
     const now = Date.now();
-    const keys = [
-      {
-        snapshotKey: "global",
-        scopeType: "global" as const,
-        scopeValue: undefined,
-        entries: leaderboard.global,
-        totals: leaderboard.totals,
-      },
-      ...Object.entries(leaderboard.byCategory).map(([categoryId, entries]) => ({
-        snapshotKey: `category:${categoryId}`,
-        scopeType: "category" as const,
-        scopeValue: categoryId,
-        entries,
-        totals: leaderboard.categoryTotals[categoryId] ?? {
-          runs: 0,
-          ideas: 0,
-          critiques: 0,
-          completedModels: 0,
+    const keys = (["final", "initial"] as const).flatMap((votePhase) => {
+      const leaderboard = buildLeaderboardData(hydrated, votePhase);
+      return [
+        {
+          snapshotKey: toSnapshotKey(undefined, votePhase),
+          scopeType: "global" as const,
+          scopeValue: undefined,
+          entries: leaderboard.global,
+          totals: leaderboard.totals,
         },
-      })),
-    ];
+        ...Object.entries(leaderboard.byCategory).map(([categoryId, entries]) => ({
+          snapshotKey: toSnapshotKey(categoryId, votePhase),
+          scopeType: "category" as const,
+          scopeValue: categoryId,
+          entries,
+          totals: leaderboard.categoryTotals[categoryId] ?? {
+            runs: 0,
+            ideas: 0,
+            critiques: 0,
+            completedModels: 0,
+          },
+        })),
+      ];
+    });
 
     const existingSnapshots = await ctx.db.query("leaderboardSnapshots").collect();
     const nextSnapshotKeys = new Set(keys.map((entry) => entry.snapshotKey));

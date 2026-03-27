@@ -396,6 +396,8 @@ export interface LeaderboardEntry {
   averageFinishPercentile: number;
 }
 
+export type LeaderboardVotePhase = "initial" | "final";
+
 export interface AggregatedScore {
   modelId: string;
   modelName: string;
@@ -405,6 +407,7 @@ export interface AggregatedScore {
 }
 
 export interface LeaderboardData {
+  votePhase: LeaderboardVotePhase;
   global: LeaderboardEntry[];
   byCategory: Record<string, LeaderboardEntry[]>;
   categoryTotals: Record<
@@ -422,6 +425,14 @@ export interface LeaderboardData {
     critiques: number;
     completedModels: number;
   };
+}
+
+export interface ArchivePageData {
+  page: BenchmarkRunSummary[];
+  isDone: boolean;
+  continueCursor: string | null;
+  totalMatchingRuns: number;
+  categoryCounts: Record<string, number>;
 }
 
 export interface ModelSelectionInput {
