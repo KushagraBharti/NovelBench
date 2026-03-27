@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Instrument_Serif, Figtree, IBM_Plex_Mono } from "next/font/google";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import Navbar from "@/components/layout/Navbar";
 import Footer from "@/components/layout/Footer";
@@ -68,6 +69,7 @@ export default async function RootLayout({
             </EasterEggProvider>
           </ConvexClientProvider>
         </ConvexAuthNextjsServerProvider>
+        <Analytics />
       </body>
     </html>
   );
