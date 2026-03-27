@@ -103,10 +103,15 @@ describe("results loaders", () => {
           totalRuns: 1,
           rating: 1542,
           ratingDeviation: 142,
+          effectiveRatingDeviation: 176,
           conservativeRating: 1258,
+          confidenceScore: 61,
           pairwiseWins: 1,
           pairwiseMatches: 1,
           pairwiseWinRate: 100,
+          directOpponentCount: 1,
+          nearbyOpponentCount: 1,
+          nearbyCoveredOpponentCount: 1,
           provisional: true,
           averageFinalScore: 9,
           averageFinalRank: 1,
@@ -114,6 +119,16 @@ describe("results loaders", () => {
       ],
       byCategory: {
         venture: [],
+      },
+      insights: {
+        featuredMatchups: [],
+        coverageGaps: [],
+      },
+      byCategoryInsights: {
+        venture: {
+          featuredMatchups: [],
+          coverageGaps: [],
+        },
       },
       categoryTotals: {
         venture: {

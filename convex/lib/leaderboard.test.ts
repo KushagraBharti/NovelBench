@@ -102,6 +102,7 @@ describe("buildLeaderboardData", () => {
     expect(data.totals.runs).toBe(1);
     expect(data.global[0]?.modelId).toBe("a");
     expect(data.global[0]?.rating).toBeGreaterThan(data.global[1]?.rating ?? 0);
+    expect(data.global[0]?.pairwiseMatches).toBe(1);
   });
 
   it("uses final rankings for the final vote phase", () => {
@@ -195,5 +196,73 @@ describe("buildLeaderboardData", () => {
     expect(data.global.map((entry) => entry.modelId)).toEqual(["a", "b", "c"]);
     expect(data.global[0]?.conservativeRating).toBeGreaterThan(data.global[1]?.conservativeRating ?? 0);
     expect(data.global[1]?.conservativeRating).toBeGreaterThan(data.global[2]?.conservativeRating ?? 0);
+  });
+
+  it("reduces confidence when ordering is only indirect", () => {
+    const now = new Date().toISOString();
+    const data = buildLeaderboardData(
+      [
+        makeRun({
+          id: "run_ab_only",
+          finalRankings: [
+            {
+              judgeModelId: "a",
+              rankings: [
+                { modelId: "a", rank: 1, score: 9, reasoning: "" },
+                { modelId: "b", rank: 2, score: 7, reasoning: "" },
+              ],
+            },
+          ],
+        }),
+        makeRun({
+          id: "run_bc_only",
+          updatedAt: now,
+          ideas: [
+            { modelId: "b", content: { title: "B", summary: "", description: "", novelty: "" }, raw: "{}", timestamp: now },
+            { modelId: "c", content: { title: "C", summary: "", description: "", novelty: "" }, raw: "{}", timestamp: now },
+          ],
+          revisedIdeas: [
+            { modelId: "b", content: { title: "B2", summary: "", description: "", novelty: "" }, raw: "{}", timestamp: now },
+            { modelId: "c", content: { title: "C2", summary: "", description: "", novelty: "" }, raw: "{}", timestamp: now },
+          ],
+          critiqueVotes: [
+            {
+              fromModelId: "b",
+              critiques: [],
+              rankings: [
+                { modelId: "b", rank: 1, score: 9, reasoning: "" },
+                { modelId: "c", rank: 2, score: 7, reasoning: "" },
+              ],
+            },
+          ],
+          finalRankings: [
+            {
+              judgeModelId: "b",
+              rankings: [
+                { modelId: "b", rank: 1, score: 9, reasoning: "" },
+                { modelId: "c", rank: 2, score: 7, reasoning: "" },
+              ],
+            },
+          ],
+          modelStates: {
+            b: { modelId: "b", stage: "complete", status: "complete" },
+            c: { modelId: "c", stage: "complete", status: "complete" },
+          },
+          checkpoint: {
+            stage: "complete",
+            completedModelIds: ["b", "c"],
+            readyForRevisionModelIds: ["b", "c"],
+            updatedAt: now,
+          },
+          metadata: { participantCount: 2, minimumSuccessfulModels: 2 },
+        }),
+      ],
+      "final",
+    );
+
+    const topEntry = data.global.find((entry) => entry.modelId === "a");
+    expect(topEntry?.directOpponentCount).toBe(1);
+    expect(topEntry?.confidenceScore).toBeLessThan(70);
+    expect(data.insights.coverageGaps.length).toBeGreaterThan(0);
   });
 });

@@ -391,16 +391,49 @@ export interface LeaderboardEntry {
   totalRuns: number;
   rating: number;
   ratingDeviation: number;
+  effectiveRatingDeviation: number;
   conservativeRating: number;
+  confidenceScore: number;
   pairwiseWins: number;
   pairwiseMatches: number;
   pairwiseWinRate: number;
+  directOpponentCount: number;
+  nearbyOpponentCount: number;
+  nearbyCoveredOpponentCount: number;
   provisional: boolean;
   averageFinalScore: number;
   averageFinalRank: number;
 }
 
 export type LeaderboardVotePhase = "initial" | "final";
+
+export interface LeaderboardHeadToHead {
+  modelAId: string;
+  modelAName: string;
+  modelBId: string;
+  modelBName: string;
+  directRuns: number;
+  pairwiseMatches: number;
+  modelAScore: number;
+  modelBScore: number;
+  coverageLevel: "none" | "thin" | "good";
+}
+
+export interface LeaderboardCoverageGap {
+  higherModelId: string;
+  higherModelName: string;
+  lowerModelId: string;
+  lowerModelName: string;
+  directRuns: number;
+  pairwiseMatches: number;
+  reason: string;
+  suggestedCategoryIds: string[];
+}
+
+export interface LeaderboardInsights {
+  featuredMatchups: LeaderboardHeadToHead[];
+  coverageGaps: LeaderboardCoverageGap[];
+}
 
 export interface AggregatedScore {
   modelId: string;
@@ -414,6 +447,8 @@ export interface LeaderboardData {
   votePhase: LeaderboardVotePhase;
   global: LeaderboardEntry[];
   byCategory: Record<string, LeaderboardEntry[]>;
+  insights: LeaderboardInsights;
+  byCategoryInsights: Record<string, LeaderboardInsights>;
   categoryTotals: Record<
     string,
     {

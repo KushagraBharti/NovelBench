@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useConvexAuth } from "convex/react";
 import { motion, AnimatePresence } from "framer-motion";
 import { categories } from "@/lib/categories";
-import { getDefaultModels } from "@/lib/models";
+import { getDefaultModels, getModelById } from "@/lib/models";
 import { useBenchmarkSSE } from "@/hooks/useBenchmarkSSE";
 import CategorySelector from "@/components/arena/CategorySelector";
 import PromptInput from "@/components/arena/PromptInput";
@@ -31,11 +31,18 @@ function ArenaContent() {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const [redirectTarget, setRedirectTarget] = useState<string | null>(null);
   const initialCategory = searchParams.get("category") || categories[0].id;
+  const initialPrompt = searchParams.get("prompt") || "";
+  const initialModelIds = (searchParams.get("models") || "")
+    .split(",")
+    .map((modelId) => modelId.trim())
+    .filter((modelId) => modelId.length > 0 && Boolean(getModelById(modelId)));
   const [categoryId, setCategoryId] = useState(initialCategory);
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(initialPrompt);
   const [showWinner, setShowWinner] = useState(false);
   const [selectedModelIds, setSelectedModelIds] = useState(
-    getDefaultModels().map((model) => model.id)
+    initialModelIds.length > 0
+      ? initialModelIds
+      : getDefaultModels().map((model) => model.id)
   );
   const [customModelIds, setCustomModelIds] = useState<string[]>([]);
   const prevStatusRef = useRef<string | null>(null);
@@ -83,6 +90,30 @@ function ArenaContent() {
       setRedirectTarget(`/arena/${pendingRunId}`);
     }
   }, []);
+
+  useEffect(() => {
+    const nextCategory = searchParams.get("category");
+    const nextPrompt = searchParams.get("prompt");
+    const nextModelIds = (searchParams.get("models") || "")
+      .split(",")
+      .map((modelId) => modelId.trim())
+      .filter((modelId) => modelId.length > 0 && Boolean(getModelById(modelId)));
+
+    if (nextCategory && nextCategory !== categoryId) {
+      setCategoryId(nextCategory);
+    }
+    if (nextPrompt != null && nextPrompt !== prompt) {
+      setPrompt(nextPrompt);
+    }
+    if (nextModelIds.length > 0) {
+      const currentKey = [...selectedModelIds].sort().join(",");
+      const nextKey = [...nextModelIds].sort().join(",");
+      if (currentKey !== nextKey) {
+        setSelectedModelIds(nextModelIds);
+        setCustomModelIds([]);
+      }
+    }
+  }, [categoryId, prompt, searchParams, selectedModelIds]);
 
   useEffect(() => {
     if (!runId) return;

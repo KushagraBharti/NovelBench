@@ -123,6 +123,7 @@ const fetchLeaderboardDataCached = unstable_cache(
           category.id,
           {
             entries: snapshot.entries,
+            metadata: snapshot.metadata,
             totals: snapshot.totals,
           },
         ] as const;
@@ -133,6 +134,19 @@ const fetchLeaderboardDataCached = unstable_cache(
       global: global.entries,
       byCategory: Object.fromEntries(
         byCategoryEntries.map(([categoryId, snapshot]) => [categoryId, snapshot.entries]),
+      ),
+      insights: global.metadata ?? {
+        featuredMatchups: [],
+        coverageGaps: [],
+      },
+      byCategoryInsights: Object.fromEntries(
+        byCategoryEntries.map(([categoryId, snapshot]) => [
+          categoryId,
+          snapshot.metadata ?? {
+            featuredMatchups: [],
+            coverageGaps: [],
+          },
+        ]),
       ),
       categoryTotals: Object.fromEntries(
         byCategoryEntries.map(([categoryId, snapshot]) => [categoryId, snapshot.totals]),

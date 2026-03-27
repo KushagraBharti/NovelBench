@@ -22,6 +22,12 @@ function getScoreColor(score: number) {
   return "#C75050";
 }
 
+function getConfidenceTone(confidenceScore: number) {
+  if (confidenceScore >= 70) return "text-[#6BBF7B]";
+  if (confidenceScore >= 45) return "text-[#C9A84C]";
+  return "text-[#C75050]";
+}
+
 export default function RankingsTable({
   entries,
   title,
@@ -49,10 +55,11 @@ export default function RankingsTable({
 
       <div className="border-t border-border">
         {/* Header */}
-        <div className="grid grid-cols-[44px_1fr_80px_64px_50px] sm:grid-cols-[44px_1fr_88px_80px_64px_50px] gap-4 py-3 label">
+        <div className="grid grid-cols-[44px_1fr_82px_50px_50px] sm:grid-cols-[44px_1fr_88px_80px_80px_64px_50px] gap-4 py-3 label">
           <span>#</span>
           <span>Model</span>
           <span className="text-right">Rating</span>
+          <span className="text-right hidden sm:block">Confidence</span>
           <span className="text-right hidden sm:block">Finish</span>
           <span className="text-right">Wins</span>
           <span className="text-right">Runs</span>
@@ -72,7 +79,7 @@ export default function RankingsTable({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: i * 0.05 }}
-              className="group grid grid-cols-[44px_1fr_80px_64px_50px] sm:grid-cols-[44px_1fr_88px_80px_64px_50px] gap-4 py-4 border-t border-border/40 items-center transition-colors hover:bg-white/[0.02]"
+              className="group grid grid-cols-[44px_1fr_82px_50px_50px] sm:grid-cols-[44px_1fr_88px_80px_80px_64px_50px] gap-4 py-4 border-t border-border/40 items-center transition-colors hover:bg-white/[0.02]"
             >
               {/* Place */}
               <span className="font-mono text-sm text-text-muted">
@@ -89,8 +96,15 @@ export default function RankingsTable({
                     </span>
                   ) : null}
                 </span>
-                <span className="text-sm text-text-muted">
+                <span className="text-sm text-text-muted block">
                   {model.provider}
+                </span>
+                <span className="text-[11px] uppercase tracking-[0.14em] text-text-muted/80 block mt-1">
+                  confidence {entry.confidenceScore}
+                  <span className="mx-1.5 text-text-muted/40">/</span>
+                  direct {entry.directOpponentCount}
+                  <span className="mx-1.5 text-text-muted/40">/</span>
+                  nearby {entry.nearbyCoveredOpponentCount}/{entry.nearbyOpponentCount}
                 </span>
               </div>
 
@@ -100,6 +114,13 @@ export default function RankingsTable({
                 style={{ color: getScoreColor(entry.rating) }}
               >
                 {entry.rating.toFixed(0)}
+              </span>
+
+              {/* Confidence */}
+              <span
+                className={`font-mono text-sm text-right hidden sm:block ${getConfidenceTone(entry.confidenceScore)}`}
+              >
+                {entry.confidenceScore}
               </span>
 
               {/* Avg Finish */}

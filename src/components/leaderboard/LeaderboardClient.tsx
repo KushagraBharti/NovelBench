@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { LeaderboardData, LeaderboardVotePhase, RunExportEntry } from "@/types";
+import { categories } from "@/lib/categories";
 import RankingsTable from "@/components/leaderboard/RankingsTable";
 import CategoryFilter from "@/components/leaderboard/CategoryFilter";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
@@ -14,6 +15,24 @@ const votePhaseLabels: Record<LeaderboardVotePhase, string> = {
   final: "Final vote",
   initial: "1st vote",
 };
+
+function getSuggestedPrompt(categoryId: string) {
+  const category = categories.find((entry) => entry.id === categoryId);
+  return (
+    category?.examplePrompts.find((prompt) => !prompt.toLowerCase().startsWith("no prompt")) ??
+    category?.examplePrompts[0] ??
+    "Create a strong benchmark prompt."
+  );
+}
+
+function buildArenaHref(categoryId: string, modelIds: string[]) {
+  const params = new URLSearchParams({
+    category: categoryId,
+    models: modelIds.join(","),
+    prompt: getSuggestedPrompt(categoryId),
+  });
+  return `/arena?${params.toString()}`;
+}
 
 export default function LeaderboardClient({
   finalData,
@@ -43,6 +62,13 @@ export default function LeaderboardClient({
   ).sort();
   const totalRuns = data.totals.runs;
   const topModel = data.global[0];
+  const selectedInsights =
+    selectedCategory === "all"
+      ? data.insights
+      : data.byCategoryInsights[selectedCategory] ?? {
+          featuredMatchups: [],
+          coverageGaps: [],
+        };
   const completedExports = ((leaderboardExports ?? []) as RunExportEntry[]).filter(
     (entry) => entry.status === "complete" && entry.downloadUrl,
   );
@@ -152,6 +178,78 @@ export default function LeaderboardClient({
           subtitle={`${votePhaseLabels[selectedVotePhase]} standing across ${getCategoryRuns(selectedCategory)} ranked benchmark${getCategoryRuns(selectedCategory) === 1 ? "" : "s"} in this category`}
         />
       )}
+
+      {(selectedInsights.featuredMatchups.length > 0 || selectedInsights.coverageGaps.length > 0) ? (
+        <div className="border-t border-border pt-8 space-y-8">
+          {selectedInsights.featuredMatchups.length > 0 ? (
+            <div>
+              <p className="label mb-4">Head-to-Head Coverage</p>
+              <div className="border-t border-border">
+                {selectedInsights.featuredMatchups.map((matchup) => (
+                  <div
+                    key={`${matchup.modelAId}:${matchup.modelBId}`}
+                    className="grid grid-cols-1 sm:grid-cols-[1fr_88px] gap-3 py-4 border-t border-border/40"
+                  >
+                    <div>
+                      <p className="text-base text-text-primary">
+                        {matchup.modelAName} vs {matchup.modelBName}
+                      </p>
+                      <p className="text-sm text-text-muted mt-1">
+                        {matchup.directRuns === 0
+                          ? "No direct head-to-head run yet. This ordering is still inferred."
+                          : `Direct score ${matchup.modelAScore.toFixed(1)} to ${matchup.modelBScore.toFixed(1)} across ${matchup.directRuns} run${matchup.directRuns === 1 ? "" : "s"}.`}
+                      </p>
+                    </div>
+                    <div className="text-left sm:text-right">
+                      <p className="font-mono text-sm text-text-secondary uppercase tracking-[0.16em]">
+                        {matchup.coverageLevel}
+                      </p>
+                      <p className="font-mono text-sm text-text-muted mt-1">
+                        {matchup.directRuns} run{matchup.directRuns === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {selectedInsights.coverageGaps.length > 0 ? (
+            <div>
+              <p className="label mb-4">Coverage Gaps</p>
+              <div className="border-t border-border">
+                {selectedInsights.coverageGaps.map((gap) => (
+                  <div
+                    key={`${gap.higherModelId}:${gap.lowerModelId}`}
+                    className="py-4 border-t border-border/40 space-y-3"
+                  >
+                    <div className="flex flex-col gap-1">
+                      <p className="text-base text-text-primary">
+                        {gap.higherModelName} vs {gap.lowerModelName}
+                      </p>
+                      <p className="text-sm text-text-muted">{gap.reason}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <span className="font-mono text-xs uppercase tracking-[0.16em] text-text-muted">
+                        direct runs {gap.directRuns}
+                      </span>
+                      {gap.suggestedCategoryIds.map((categoryId) => (
+                        <Link
+                          key={`${gap.higherModelId}:${gap.lowerModelId}:${categoryId}`}
+                          href={buildArenaHref(categoryId, [gap.higherModelId, gap.lowerModelId])}
+                          className="text-sm uppercase tracking-[0.18em] text-text-muted transition-colors hover:text-text-primary"
+                        >
+                          Run {categoryId}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Exports */}
       {isAuthenticated ? (

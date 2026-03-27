@@ -385,6 +385,7 @@ export default defineSchema({
     scopeType: v.union(v.literal("global"), v.literal("category")),
     scopeValue: v.optional(v.string()),
     entries: v.array(v.any()),
+    metadata: v.optional(v.any()),
     totals: v.object({
       runs: v.number(),
       ideas: v.number(),

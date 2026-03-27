@@ -29,6 +29,10 @@ export const get = query({
       return {
         votePhase,
         entries: [],
+        metadata: {
+          featuredMatchups: [],
+          coverageGaps: [],
+        },
         categoryTotals: {},
         totals: {
           runs: 0,
@@ -42,6 +46,10 @@ export const get = query({
     return {
       votePhase,
       entries: snapshot.entries,
+      metadata: snapshot.metadata ?? {
+        featuredMatchups: [],
+        coverageGaps: [],
+      },
       categoryTotals: snapshot.scopeValue
         ? { [snapshot.scopeValue]: snapshot.totals }
         : {},
@@ -159,6 +167,7 @@ export const writeSnapshotsInternal = internalMutation({
         scopeType: entry.scopeType,
         scopeValue: entry.scopeValue,
         entries: entry.entries,
+        metadata: entry.metadata,
         totals: entry.totals,
         updatedAt: args.updatedAt,
       };
@@ -232,6 +241,7 @@ export const rebuildSnapshotsInternal = internalAction({
           scopeType: "global" as const,
           scopeValue: undefined,
           entries: leaderboard.global,
+          metadata: leaderboard.insights,
           totals: leaderboard.totals,
         },
         ...Object.entries(leaderboard.byCategory).map(([categoryId, entries]) => ({
@@ -239,6 +249,10 @@ export const rebuildSnapshotsInternal = internalAction({
           scopeType: "category" as const,
           scopeValue: categoryId,
           entries,
+          metadata: leaderboard.byCategoryInsights[categoryId] ?? {
+            featuredMatchups: [],
+            coverageGaps: [],
+          },
           totals: leaderboard.categoryTotals[categoryId] ?? {
             runs: 0,
             ideas: 0,

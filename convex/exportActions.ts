@@ -120,6 +120,20 @@ const generateExportFileHandler = async (
         exportDoc.categoryId && bundle.scopedSnapshot
           ? { [exportDoc.categoryId]: bundle.scopedSnapshot.entries }
           : {},
+      insights: bundle.globalSnapshot?.metadata ?? {
+        featuredMatchups: [],
+        coverageGaps: [],
+      },
+      byCategoryInsights:
+        exportDoc.categoryId && bundle.scopedSnapshot
+          ? {
+              [exportDoc.categoryId]:
+                bundle.scopedSnapshot.metadata ?? {
+                  featuredMatchups: [],
+                  coverageGaps: [],
+                },
+            }
+          : {},
       categoryTotals:
         exportDoc.categoryId && bundle.scopedSnapshot
           ? { [exportDoc.categoryId]: bundle.scopedSnapshot.totals }
