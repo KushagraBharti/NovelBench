@@ -70,7 +70,7 @@ export default function RunDetailClient({
         throw new Error(payload.error ?? `HTTP ${response.status}`);
       }
       toast.success("Run permanently deleted");
-      router.replace("/runs");
+      router.replace("/archive");
       router.refresh();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Delete failed");
@@ -83,17 +83,10 @@ export default function RunDetailClient({
     <div className="mx-auto max-w-5xl px-6 py-8">
       <div className="flex items-center gap-3">
         <Link
-          href="/runs"
-          className="inline-block text-base text-text-muted transition-colors hover:text-text-secondary"
-        >
-          &larr; Runs
-        </Link>
-        <span className="text-border/40">/</span>
-        <Link
           href="/archive"
           className="inline-block text-base text-text-muted transition-colors hover:text-text-secondary"
         >
-          Archive
+          &larr; Archive
         </Link>
       </div>
 

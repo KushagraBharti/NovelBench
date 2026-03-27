@@ -44,6 +44,8 @@ export default function LeaderboardClient({
   const { isAuthenticated } = useConvexAuth();
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedVotePhase, setSelectedVotePhase] = useState<LeaderboardVotePhase>("final");
+  const [showHeadToHead, setShowHeadToHead] = useState(false);
+  const [showCoverageGaps, setShowCoverageGaps] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [showExports, setShowExports] = useState(false);
   const data = selectedVotePhase === "final" ? finalData : initialData;
@@ -183,69 +185,97 @@ export default function LeaderboardClient({
         <div className="border-t border-border pt-8 space-y-8">
           {selectedInsights.featuredMatchups.length > 0 ? (
             <div>
-              <p className="label mb-4">Head-to-Head Coverage</p>
-              <div className="border-t border-border">
-                {selectedInsights.featuredMatchups.map((matchup) => (
-                  <div
-                    key={`${matchup.modelAId}:${matchup.modelBId}`}
-                    className="grid grid-cols-1 sm:grid-cols-[1fr_88px] gap-3 py-4 border-t border-border/40"
-                  >
-                    <div>
-                      <p className="text-base text-text-primary">
-                        {matchup.modelAName} vs {matchup.modelBName}
-                      </p>
-                      <p className="text-sm text-text-muted mt-1">
-                        {matchup.directRuns === 0
-                          ? "No direct head-to-head run yet. This ordering is still inferred."
-                          : `Direct score ${matchup.modelAScore.toFixed(1)} to ${matchup.modelBScore.toFixed(1)} across ${matchup.directRuns} run${matchup.directRuns === 1 ? "" : "s"}.`}
-                      </p>
+              <button
+                type="button"
+                onClick={() => setShowHeadToHead((current) => !current)}
+                className="mb-4 flex items-center gap-3 text-left"
+              >
+                <span className="label">Head-to-Head Coverage</span>
+                <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-text-muted">
+                  {selectedInsights.featuredMatchups.length}
+                </span>
+                <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-text-muted">
+                  {showHeadToHead ? "Hide" : "Show"}
+                </span>
+              </button>
+              {showHeadToHead ? (
+                <div className="border-t border-border">
+                  {selectedInsights.featuredMatchups.map((matchup) => (
+                    <div
+                      key={`${matchup.modelAId}:${matchup.modelBId}`}
+                      className="grid grid-cols-1 gap-3 border-t border-border/40 py-4 sm:grid-cols-[1fr_88px]"
+                    >
+                      <div>
+                        <p className="text-base text-text-primary">
+                          {matchup.modelAName} vs {matchup.modelBName}
+                        </p>
+                        <p className="mt-1 text-sm text-text-muted">
+                          {matchup.directRuns === 0
+                            ? "No direct head-to-head run yet. This ordering is still inferred."
+                            : `Direct score ${matchup.modelAScore.toFixed(1)} to ${matchup.modelBScore.toFixed(1)} across ${matchup.directRuns} run${matchup.directRuns === 1 ? "" : "s"}.`}
+                        </p>
+                      </div>
+                      <div className="text-left sm:text-right">
+                        <p className="font-mono text-sm uppercase tracking-[0.16em] text-text-secondary">
+                          {matchup.coverageLevel}
+                        </p>
+                        <p className="mt-1 font-mono text-sm text-text-muted">
+                          {matchup.directRuns} run{matchup.directRuns === 1 ? "" : "s"}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-left sm:text-right">
-                      <p className="font-mono text-sm text-text-secondary uppercase tracking-[0.16em]">
-                        {matchup.coverageLevel}
-                      </p>
-                      <p className="font-mono text-sm text-text-muted mt-1">
-                        {matchup.directRuns} run{matchup.directRuns === 1 ? "" : "s"}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
           {selectedInsights.coverageGaps.length > 0 ? (
             <div>
-              <p className="label mb-4">Coverage Gaps</p>
-              <div className="border-t border-border">
-                {selectedInsights.coverageGaps.map((gap) => (
-                  <div
-                    key={`${gap.higherModelId}:${gap.lowerModelId}`}
-                    className="py-4 border-t border-border/40 space-y-3"
-                  >
-                    <div className="flex flex-col gap-1">
-                      <p className="text-base text-text-primary">
-                        {gap.higherModelName} vs {gap.lowerModelName}
-                      </p>
-                      <p className="text-sm text-text-muted">{gap.reason}</p>
+              <button
+                type="button"
+                onClick={() => setShowCoverageGaps((current) => !current)}
+                className="mb-4 flex items-center gap-3 text-left"
+              >
+                <span className="label">Coverage Gaps</span>
+                <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-text-muted">
+                  {selectedInsights.coverageGaps.length}
+                </span>
+                <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-text-muted">
+                  {showCoverageGaps ? "Hide" : "Show"}
+                </span>
+              </button>
+              {showCoverageGaps ? (
+                <div className="border-t border-border">
+                  {selectedInsights.coverageGaps.map((gap) => (
+                    <div
+                      key={`${gap.higherModelId}:${gap.lowerModelId}`}
+                      className="space-y-3 border-t border-border/40 py-4"
+                    >
+                      <div className="flex flex-col gap-1">
+                        <p className="text-base text-text-primary">
+                          {gap.higherModelName} vs {gap.lowerModelName}
+                        </p>
+                        <p className="text-sm text-text-muted">{gap.reason}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                        <span className="font-mono text-xs uppercase tracking-[0.16em] text-text-muted">
+                          direct runs {gap.directRuns}
+                        </span>
+                        {gap.suggestedCategoryIds.map((categoryId) => (
+                          <Link
+                            key={`${gap.higherModelId}:${gap.lowerModelId}:${categoryId}`}
+                            href={buildArenaHref(categoryId, [gap.higherModelId, gap.lowerModelId])}
+                            className="text-sm uppercase tracking-[0.18em] text-text-muted transition-colors hover:text-text-primary"
+                          >
+                            Run {categoryId}
+                          </Link>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-                      <span className="font-mono text-xs uppercase tracking-[0.16em] text-text-muted">
-                        direct runs {gap.directRuns}
-                      </span>
-                      {gap.suggestedCategoryIds.map((categoryId) => (
-                        <Link
-                          key={`${gap.higherModelId}:${gap.lowerModelId}:${categoryId}`}
-                          href={buildArenaHref(categoryId, [gap.higherModelId, gap.lowerModelId])}
-                          className="text-sm uppercase tracking-[0.18em] text-text-muted transition-colors hover:text-text-primary"
-                        >
-                          Run {categoryId}
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>

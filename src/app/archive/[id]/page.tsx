@@ -6,5 +6,5 @@ export default async function ArchiveDetailRedirect({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  redirect(`/runs/${id}`);
+  redirect(`/run/${id}`);
 }

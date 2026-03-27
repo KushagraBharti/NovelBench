@@ -354,7 +354,7 @@ export default function RunListClient({
               transition={{ delay: index * 0.02 }}
             >
               <div className="group flex items-center gap-4 border-b border-border/50 px-1 py-5 transition-colors hover:bg-white/[0.02]">
-                <Link href={`/runs/${run.id}`} className="flex min-w-0 flex-1 items-center gap-4">
+                <Link href={`/run/${run.id}`} className="flex min-w-0 flex-1 items-center gap-4">
                   <div className="flex w-36 flex-shrink-0 items-center gap-3">
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: identity.color }} />
                     <span className="font-mono text-sm uppercase tracking-[0.18em] text-text-muted">
@@ -386,7 +386,7 @@ export default function RunListClient({
                 </Link>
                 <div className="flex flex-shrink-0 items-center gap-4">
                   <RunRowActions run={run} mode={mode} />
-                  <Link href={`/runs/${run.id}`} className="flex items-center gap-4">
+                  <Link href={`/run/${run.id}`} className="flex items-center gap-4">
                     <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-text-muted">
                       {statusLabel(run.status)}
                     </span>

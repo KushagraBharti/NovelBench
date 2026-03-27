@@ -16,7 +16,6 @@ const publicNavItems = [
 const privateNavItems = [
   { href: "/", label: "Dashboard" },
   { href: "/arena", label: "Arena" },
-  { href: "/runs", label: "Runs" },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/archive", label: "Archive" },
 ];
