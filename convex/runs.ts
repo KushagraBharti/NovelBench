@@ -113,6 +113,11 @@ const LIVE_ACTIVITY_EVENT_KINDS = [
 
 type LiveActivityEventKind = (typeof LIVE_ACTIVITY_EVENT_KINDS)[number];
 
+type LiveActivityCursor = {
+  createdAt: number;
+  eventId?: string;
+};
+
 function isCountedCompleteStatus(status: Doc<"runParticipants">["status"]) {
   return status === "complete" ? 1 : 0;
 }
@@ -121,7 +126,7 @@ function isCountedFailedStatus(status: Doc<"runParticipants">["status"]) {
   return status === "failed" ? 1 : 0;
 }
 
-function participantCounterDeltas(
+export function participantCounterDeltas(
   previousStatus: Doc<"runParticipants">["status"],
   nextStatus: Doc<"runParticipants">["status"],
 ) {
@@ -129,6 +134,47 @@ function participantCounterDeltas(
     completedDelta: isCountedCompleteStatus(nextStatus) - isCountedCompleteStatus(previousStatus),
     failedDelta: isCountedFailedStatus(nextStatus) - isCountedFailedStatus(previousStatus),
   };
+}
+
+function isLiveEventAfterCursor(
+  event: Pick<Doc<"runEvents">, "_id" | "createdAt">,
+  cursor: LiveActivityCursor,
+) {
+  if (event.createdAt > cursor.createdAt) {
+    return true;
+  }
+  if (event.createdAt < cursor.createdAt) {
+    return false;
+  }
+  if (!cursor.eventId) {
+    return true;
+  }
+  return String(event._id).localeCompare(cursor.eventId) > 0;
+}
+
+export function filterLiveActivityEventsSince(
+  events: Array<Pick<Doc<"runEvents">, "_id" | "createdAt">>,
+  cursor?: LiveActivityCursor | null,
+): Array<Pick<Doc<"runEvents">, "_id" | "createdAt">> {
+  return filterLiveActivityEventList(events, cursor);
+}
+
+function filterLiveActivityEventList<T extends Pick<Doc<"runEvents">, "_id" | "createdAt">>(
+  events: T[],
+  cursor?: LiveActivityCursor | null,
+): T[] {
+  const sorted = [...events].sort((a, b) => {
+    if (a.createdAt !== b.createdAt) {
+      return a.createdAt - b.createdAt;
+    }
+    return String(a._id).localeCompare(String(b._id));
+  });
+
+  if (!cursor) {
+    return sorted;
+  }
+
+  return sorted.filter((event) => isLiveEventAfterCursor(event, cursor));
 }
 
 async function getProjectMembership(
@@ -383,8 +429,13 @@ async function hydrateRunLite(
   return runDocsToBenchmarkRunLite({ run, participants });
 }
 
-function mapLiveActivityEvents(
-  events: Doc<"runEvents">[],
+function mapLiveActivityEvents<
+  T extends Pick<
+    Doc<"runEvents">,
+    "_id" | "createdAt" | "kind" | "stage" | "participantModelId" | "payload"
+  >,
+>(
+  events: T[],
 ) {
   return events.map((event) => ({
     id: String(event._id),
@@ -886,6 +937,7 @@ export const liveActivitySince = query({
   args: {
     runId: v.id("runs"),
     sinceCreatedAt: v.optional(v.number()),
+    sinceEventId: v.optional(v.string()),
   },
   returns: v.any(),
   handler: async (ctx, args) => {
@@ -906,16 +958,26 @@ export const liveActivitySince = query({
             .collect(),
         ),
       )
-    )
-      .flat()
-      .sort((a, b) => {
-        if (a.createdAt !== b.createdAt) {
-          return a.createdAt - b.createdAt;
-        }
-        return String(a._id).localeCompare(String(b._id));
-      });
+    ).flat();
 
-    return mapLiveActivityEvents(events);
+    const filteredEvents = filterLiveActivityEventsSince(
+      events,
+      sinceCreatedAt > 0 || args.sinceEventId
+        ? {
+            createdAt: sinceCreatedAt,
+            eventId: args.sinceEventId,
+          }
+        : null,
+    );
+
+    return mapLiveActivityEvents(
+      filteredEvents as Array<
+        Pick<
+          Doc<"runEvents">,
+          "_id" | "createdAt" | "kind" | "stage" | "participantModelId" | "payload"
+        >
+      >,
+    );
   },
 });
 

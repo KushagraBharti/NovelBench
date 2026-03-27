@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useConvexAuth } from "convex/react";
 
@@ -22,12 +22,26 @@ export default function AuthAwareLink({
   children?: ReactNode;
 }) {
   const { isAuthenticated } = useConvexAuth();
-  const content = isAuthenticated
-    ? (signedInChildren ?? children)
-    : (signedOutChildren ?? children);
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  const fallbackContent = children ?? signedInChildren ?? signedOutChildren;
+  const content = !isMounted
+    ? fallbackContent
+    : isAuthenticated
+      ? (signedInChildren ?? children)
+      : (signedOutChildren ?? children);
+  const targetHref = !isMounted
+    ? href
+    : isAuthenticated
+      ? href
+      : buildSignInHref(href);
 
   return (
-    <Link href={isAuthenticated ? href : buildSignInHref(href)} className={className}>
+    <Link href={targetHref} className={className}>
       {content}
     </Link>
   );
