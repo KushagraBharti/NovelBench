@@ -46,6 +46,7 @@ function ArenaContent() {
   );
   const [customModelIds, setCustomModelIds] = useState<string[]>([]);
   const prevStatusRef = useRef<string | null>(null);
+  const lastPrefillSignatureRef = useRef<string | null>(null);
 
   const {
     runId,
@@ -98,6 +99,12 @@ function ArenaContent() {
       .split(",")
       .map((modelId) => modelId.trim())
       .filter((modelId) => modelId.length > 0 && Boolean(getModelById(modelId)));
+    const nextSignature = [nextCategory ?? "", nextPrompt ?? "", nextModelIds.join(",")].join("|");
+
+    if (lastPrefillSignatureRef.current === nextSignature) {
+      return;
+    }
+    lastPrefillSignatureRef.current = nextSignature;
 
     if (nextCategory && nextCategory !== categoryId) {
       setCategoryId(nextCategory);
@@ -241,6 +248,11 @@ function ArenaContent() {
                 <Button type="submit" size="lg" disabled={!canStart} className="w-full">
                   Enter the Arena
                 </Button>
+                {error ? (
+                  <p className="mt-4 border-l border-[#C75050]/45 pl-4 text-base text-text-secondary">
+                    {error}
+                  </p>
+                ) : null}
               </div>
             </form>
           </motion.div>
@@ -333,6 +345,11 @@ function ArenaContent() {
               <p className="text-text-muted text-sm max-w-sm text-center leading-relaxed">
                 From a head-to-head duel to an eight-model battle royale — pick your competitors and write a prompt to begin.
               </p>
+              {error ? (
+                <p className="mt-8 max-w-xl border-l border-[#C75050]/45 pl-4 text-base text-text-secondary text-left">
+                  {error}
+                </p>
+              ) : null}
             </motion.div>
           )}
         </AnimatePresence>
