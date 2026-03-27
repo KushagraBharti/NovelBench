@@ -103,6 +103,7 @@ export const getRunRecordsPageInternal = internalQuery({
       ]);
 
       records.push({
+        runId: run._id,
         categoryId: run.categoryId,
         status: run.status,
         updatedAt: new Date(run.updatedAt).toISOString(),

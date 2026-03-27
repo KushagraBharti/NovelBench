@@ -75,6 +75,9 @@ export interface CritiqueVoteResult {
   fromModelId: string;
   critiques: CritiqueEntry[];
   rankings: RankingEntry[];
+  ballotMeta?: {
+    presentedModelIds: string[];
+  };
 }
 
 export interface HumanCritiqueEntry extends CritiqueEntry {
@@ -93,6 +96,9 @@ export interface RankingEntry {
 export interface Ranking {
   judgeModelId: string;
   rankings: RankingEntry[];
+  ballotMeta?: {
+    presentedModelIds: string[];
+  };
 }
 
 export type WebEnabledStage = "generate" | "revise";
@@ -434,6 +440,52 @@ export interface LeaderboardCoverageGap {
 export interface LeaderboardInsights {
   featuredMatchups: LeaderboardHeadToHead[];
   coverageGaps: LeaderboardCoverageGap[];
+  audit?: {
+    weightingEnabled: boolean;
+    votePhase: LeaderboardVotePhase;
+    judgeWeightRange: {
+      min: number;
+      max: number;
+      neutral: number;
+    };
+    weightedVsUnweightedDelta: {
+      changedRanks: number;
+      topMoverModelId: string | null;
+      topMoverModelName: string | null;
+      topMoverShift: number;
+      topMoverRatingDelta: number;
+    };
+    influenceConcentration: {
+      topJudgeModelId: string | null;
+      topJudgeModelName: string | null;
+      topJudgeShare: number;
+      totalEffectiveBallotWeight: number;
+      activeJudgeCount: number;
+    };
+    firstPositionBias: {
+      pairwiseRate: number;
+      deltaFromNeutral: number;
+      ballotCount: number;
+      comparisonWeight: number;
+    };
+    judgeBias: Array<{
+      judgeModelId: string;
+      judgeModelName: string;
+      ballots: number;
+      selfPreferenceDelta: number;
+      sameLabPreferenceDelta: number;
+      averageAppliedWeight: number;
+      confidenceBucket: "low" | "medium" | "high";
+    }>;
+    directCoverage: {
+      weightedGapCount: number;
+      unweightedGapCount: number;
+      weightedAdjacentCovered: number;
+      weightedAdjacentTotal: number;
+      unweightedAdjacentCovered: number;
+      unweightedAdjacentTotal: number;
+    };
+  };
 }
 
 export interface AggregatedScore {

@@ -900,6 +900,9 @@ export const critiqueParticipant = internalAction({
           fromModelId: participant.modelId,
           critiques: parsed.critiques,
           rankings: parsed.rankings,
+          ballotMeta: {
+            presentedModelIds: shuffledIdeas.map((idea) => idea.modelId),
+          },
         },
         startedAt,
         inputTokens: usage.inputTokens,
@@ -1130,6 +1133,9 @@ export const voteParticipant = internalAction({
         parsedResult: {
           judgeModelId: participant.modelId,
           rankings,
+          ballotMeta: {
+            presentedModelIds: shuffledIdeas.map((idea) => idea.modelId),
+          },
         },
         startedAt,
         inputTokens: usage.inputTokens,

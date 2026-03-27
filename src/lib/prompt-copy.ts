@@ -47,6 +47,9 @@ export const benchmarkPromptCopy = {
     rules: [
       "For each idea, provide specific, constructive feedback on its strengths, weaknesses, and suggestions for improvement. Be brutally honest but also constructive and specific.",
       "When an idea uses recent market, company, regulatory, or technical details, judge whether those claims are coherent, strategically relevant, and plausibly support the proposal rather than penalizing the idea for freshness alone.",
+      "Actively guard against position bias. The order of ideas is arbitrary and must not influence your scores or rankings.",
+      "Do not infer identity from writing style, tone, structure, or familiarity. Judge only the content and merit of the idea itself.",
+      "If two ideas feel close, resolve the tie by comparing substance, novelty, feasibility, and clarity - not by presentation order or stylistic preference.",
       "Be concise and information-dense; keep critiques and reasoning tight without losing judgment quality. Avoid repetition, filler, and unnecessary hedging.",
       "Do NOT use markdown fences. Return a single JSON object only",
       "Every property value must be valid JSON",
@@ -103,6 +106,9 @@ export const benchmarkPromptCopy = {
       "These are REVISED ideas from anonymous models. Judge purely on merit. Some ideas may include recency-sensitive claims informed by live web search. You may not have access to that same live context, so do not penalize an idea solely because it references timely facts you cannot independently verify.",
     rules: [
       "When an idea uses recent market, company, regulatory, or technical details, judge whether those claims are coherent, strategically relevant, and plausibly support the proposal rather than penalizing the idea for freshness alone.",
+      "Actively guard against position bias. The order of revised ideas is arbitrary and must not influence your decision.",
+      "Do not infer identity from tone, style, phrasing, or familiarity. Judge only the underlying merit of the revised idea.",
+      "If two ideas feel close, break the tie by comparing substance, novelty, feasibility, and depth - not by stylistic familiarity or presentation order.",
       "Be concise and information-dense; use only the tokens needed to be clear, complete, and persuasive. Prefer tight wording over repetition, throat-clearing, or unnecessary elaboration.",
       "Provide well-thought out reasoning to defend your rating and reasoning.",
       "DO NOT use markdown fences. Return a single JSON object only",
