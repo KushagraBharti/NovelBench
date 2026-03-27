@@ -26,11 +26,12 @@ export default function LeaderboardClient({
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedVotePhase, setSelectedVotePhase] = useState<LeaderboardVotePhase>("final");
   const [exportMessage, setExportMessage] = useState<string | null>(null);
+  const [showExports, setShowExports] = useState(false);
   const data = selectedVotePhase === "final" ? finalData : initialData;
   const requestLeaderboardExport = useMutation(api.exports.requestLeaderboardExport);
   const leaderboardExports = useQuery(
     api.exports.listLeaderboard,
-    isAuthenticated
+    isAuthenticated && showExports
       ? {
           categoryId: selectedCategory === "all" ? undefined : selectedCategory,
           votePhase: selectedVotePhase,
@@ -51,6 +52,7 @@ export default function LeaderboardClient({
   }
 
   function queueExport(format: "json" | "csv") {
+    setShowExports(true);
     setExportMessage(`Queueing ${format.toUpperCase()} leaderboard export...`);
     void requestLeaderboardExport({
       format,
@@ -86,7 +88,7 @@ export default function LeaderboardClient({
     { label: "Runs", value: totalRuns },
     { label: "Ideas", value: data.totals.ideas },
     { label: "Leader", displayText: topModel?.modelName ?? "—" },
-    { label: "Top Score", value: topModel?.compositeScore ?? 0, decimals: 1 },
+    { label: "Top Rating", value: topModel?.rating ?? 0, decimals: 0 },
   ];
 
   return (
@@ -156,6 +158,15 @@ export default function LeaderboardClient({
         <div className="border-t border-border pt-6">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
             <span className="label">Export</span>
+            {!showExports ? (
+              <button
+                type="button"
+                onClick={() => setShowExports(true)}
+                className="text-sm uppercase tracking-[0.18em] text-text-muted transition-colors hover:text-text-primary"
+              >
+                Show downloads
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => queueExport("json")}

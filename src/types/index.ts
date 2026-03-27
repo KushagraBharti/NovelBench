@@ -389,11 +389,15 @@ export interface LeaderboardEntry {
   provider: string;
   wins: number;
   totalRuns: number;
-  compositeScore: number;
+  rating: number;
+  ratingDeviation: number;
+  conservativeRating: number;
+  pairwiseWins: number;
+  pairwiseMatches: number;
+  pairwiseWinRate: number;
+  provisional: boolean;
   averageFinalScore: number;
   averageFinalRank: number;
-  averageCritiqueScore: number;
-  averageFinishPercentile: number;
 }
 
 export type LeaderboardVotePhase = "initial" | "final";

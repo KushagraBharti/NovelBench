@@ -1,6 +1,6 @@
 import type { BenchmarkRun, LeaderboardData } from "@/types";
 
-function csvEscape(value: string | number | null | undefined) {
+function csvEscape(value: string | number | boolean | null | undefined) {
   const text = value == null ? "" : String(value);
   if (/[",\n]/.test(text)) {
     return `"${text.replace(/"/g, "\"\"")}"`;
@@ -111,11 +111,15 @@ export function buildLeaderboardCsv(categoryId: string | null, data: Leaderboard
     "provider",
     "wins",
     "totalRuns",
-    "compositeScore",
+    "rating",
+    "ratingDeviation",
+    "conservativeRating",
+    "pairwiseWins",
+    "pairwiseMatches",
+    "pairwiseWinRate",
+    "provisional",
     "averageFinalScore",
     "averageFinalRank",
-    "averageCritiqueScore",
-    "averageFinishPercentile",
   ];
 
   const rows = entries.map((entry) => [
@@ -124,11 +128,15 @@ export function buildLeaderboardCsv(categoryId: string | null, data: Leaderboard
     entry.provider,
     entry.wins,
     entry.totalRuns,
-    entry.compositeScore,
+    entry.rating,
+    entry.ratingDeviation,
+    entry.conservativeRating,
+    entry.pairwiseWins,
+    entry.pairwiseMatches,
+    entry.pairwiseWinRate,
+    entry.provisional,
     entry.averageFinalScore,
     entry.averageFinalRank,
-    entry.averageCritiqueScore,
-    entry.averageFinishPercentile,
   ]);
 
   return [["scope", categoryId ?? "global"], ["votePhase", data.votePhase], headers, ...rows]

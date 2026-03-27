@@ -17,8 +17,8 @@ function getPlaceLabel(i: number) {
 }
 
 function getScoreColor(score: number) {
-  if (score >= 70) return "#6BBF7B";
-  if (score >= 50) return "#C9A84C";
+  if (score >= 1550) return "#6BBF7B";
+  if (score >= 1450) return "#C9A84C";
   return "#C75050";
 }
 
@@ -52,7 +52,7 @@ export default function RankingsTable({
         <div className="grid grid-cols-[44px_1fr_80px_64px_50px] sm:grid-cols-[44px_1fr_88px_80px_64px_50px] gap-4 py-3 label">
           <span>#</span>
           <span>Model</span>
-          <span className="text-right">Score</span>
+          <span className="text-right">Rating</span>
           <span className="text-right hidden sm:block">Finish</span>
           <span className="text-right">Wins</span>
           <span className="text-right">Runs</span>
@@ -83,18 +83,23 @@ export default function RankingsTable({
               <div className="min-w-0">
                 <span className="text-base text-text-primary block truncate group-hover:text-accent transition-colors">
                   {entry.modelName}
+                  {entry.provisional ? (
+                    <span className="ml-2 text-[10px] uppercase tracking-[0.18em] text-text-muted">
+                      provisional
+                    </span>
+                  ) : null}
                 </span>
                 <span className="text-sm text-text-muted">
                   {model.provider}
                 </span>
               </div>
 
-              {/* Composite Score */}
+              {/* Rating */}
               <span
                 className="font-mono text-base font-medium text-right"
-                style={{ color: getScoreColor(entry.compositeScore) }}
+                style={{ color: getScoreColor(entry.rating) }}
               >
-                {entry.compositeScore.toFixed(1)}
+                {entry.rating.toFixed(0)}
               </span>
 
               {/* Avg Finish */}
