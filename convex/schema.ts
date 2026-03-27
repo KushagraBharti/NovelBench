@@ -303,7 +303,9 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_run_and_created_at", ["runId", "createdAt"])
-    .index("by_run_stage_and_created_at", ["runId", "stage", "createdAt"]),
+    .index("by_run_stage_and_created_at", ["runId", "stage", "createdAt"])
+    .index("by_run_kind_and_created_at", ["runId", "kind", "createdAt"])
+    .index("by_run_stage_kind_and_created_at", ["runId", "stage", "kind", "createdAt"]),
 
   runArtifacts: defineTable({
     runId: v.id("runs"),

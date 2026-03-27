@@ -2,6 +2,8 @@ import LeaderboardClient from "@/components/leaderboard/LeaderboardClient";
 import AuthAwareLink from "@/components/auth/AuthAwareLink";
 import { getLeaderboardData } from "@/lib/results";
 
+export const revalidate = 60;
+
 export default async function LeaderboardPage() {
   const [finalData, initialData] = await Promise.all([
     getLeaderboardData("final"),

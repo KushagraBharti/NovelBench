@@ -56,7 +56,6 @@ export default function RankingDisplay({ rankings, title, showPodium, showReason
           <p className="label mb-6">Final Standings</p>
           <div className="flex items-end justify-center gap-8 sm:gap-16">
             {[scores[1], scores[0], scores[2]].map((score, i) => {
-              const model = getModelIdentity(score.modelId);
               const place = i === 0 ? 1 : i === 1 ? 0 : 2;
               return (
                 <motion.div
@@ -94,7 +93,6 @@ export default function RankingDisplay({ rankings, title, showPodium, showReason
 
         {/* Rows */}
         {scores.map((score, i) => {
-          const model = getModelIdentity(score.modelId);
           return (
             <motion.div
               key={score.modelId}
@@ -184,7 +182,6 @@ export default function RankingDisplay({ rankings, title, showPodium, showReason
                         >
                           <div className="mt-5 space-y-6">
                             {scores.map((score) => {
-                              const model = getModelIdentity(score.modelId);
                               const judgeReasons = rankings
                                 .map((ranking) => {
                                   const entry = ranking.rankings.find((candidate) => candidate.modelId === score.modelId);

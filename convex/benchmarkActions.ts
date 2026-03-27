@@ -44,6 +44,7 @@ import {
   REASONING_VOTE,
 } from "@/lib/prompt-runtime";
 import type { CritiqueEntry, Idea, StageWebTrace, WebEnabledStage } from "@/types";
+import { LIVE_TOKEN_FLUSH_CHARS } from "@/lib/runtime-config";
 
 const ANONYMOUS_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -104,8 +105,13 @@ async function getExecutionBundle(
   ctx: ActionCtx,
   runId: string,
   participantId: string,
+  bundleLoader:
+    | typeof internal.runs.getGenerateBundleInternal
+    | typeof internal.runs.getCritiqueBundleInternal
+    | typeof internal.runs.getReviseBundleInternal
+    | typeof internal.runs.getVoteBundleInternal,
 ): Promise<ExecutionBundle> {
-  const bundle = await ctx.runQuery(internal.runs.getRunBundleInternal, {
+  const bundle: any = await ctx.runQuery(bundleLoader, {
     runId: runId as never,
   });
   const participant = bundle.participants.find((entry: { _id: string }) => entry._id === participantId);
@@ -258,7 +264,7 @@ function createChunkPublisher(
   return {
     push: async (chunk: string) => {
       buffer += chunk;
-      if (buffer.length >= 120 || /[\n.!?]$/.test(chunk)) {
+      if (buffer.length >= LIVE_TOKEN_FLUSH_CHARS || /[\n.!?]$/.test(chunk)) {
         const flushed = buffer;
         buffer = "";
         await ctx.runMutation(internal.runs.appendLiveTokenEventInternal, {
@@ -746,6 +752,7 @@ export const generateParticipant = internalAction({
         ctx,
         args.runId,
         args.participantId,
+        internal.runs.getGenerateBundleInternal,
       );
       modelId = participant.modelId;
       if (bundle.run.cancellationRequested) {
@@ -836,6 +843,7 @@ export const critiqueParticipant = internalAction({
         ctx,
         args.runId,
         args.participantId,
+        internal.runs.getCritiqueBundleInternal,
       );
       modelId = participant.modelId;
       if (bundle.run.cancellationRequested) {
@@ -932,6 +940,7 @@ export const reviseParticipant = internalAction({
         ctx,
         args.runId,
         args.participantId,
+        internal.runs.getReviseBundleInternal,
       );
       modelId = participant.modelId;
       if (bundle.run.cancellationRequested) {
@@ -954,7 +963,7 @@ export const reviseParticipant = internalAction({
           }
         }
       }
-      for (const event of bundle.events as any[]) {
+      for (const event of bundle.humanCritiqueEvents as any[]) {
         if (event.kind !== "human_critique_submitted") {
           continue;
         }
@@ -973,7 +982,7 @@ export const reviseParticipant = internalAction({
         timestamp: new Date(participant.completedAt ?? Date.now()).toISOString(),
       };
       const priorSourceSummary = formatPriorSourceSummary(
-        priorSourcesFromEvents(bundle.events, participant.modelId, "generate"),
+        priorSourcesFromEvents(bundle.generateTraceEvents, participant.modelId, "generate"),
       );
       const toolPrompt = buildRevisionPrompt(
         originalIdea,
@@ -1066,6 +1075,7 @@ export const voteParticipant = internalAction({
         ctx,
         args.runId,
         args.participantId,
+        internal.runs.getVoteBundleInternal,
       );
       modelId = participant.modelId;
       if (bundle.run.cancellationRequested) {

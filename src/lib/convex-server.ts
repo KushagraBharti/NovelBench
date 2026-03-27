@@ -1,5 +1,6 @@
 import { fetchMutation, fetchQuery } from "convex/nextjs";
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
+import { unstable_cache } from "next/cache";
 import { api } from "../../convex/_generated/api";
 import { categories } from "./categories";
 import type {
@@ -15,6 +16,16 @@ import type {
 async function authOptions() {
   const token = await convexAuthNextjsToken();
   return token ? { token } : {};
+}
+
+function isTerminalStatus(status: BenchmarkRun["status"]) {
+  return (
+    status === "complete" ||
+    status === "partial" ||
+    status === "canceled" ||
+    status === "dead_lettered" ||
+    status === "error"
+  );
 }
 
 export async function fetchRun(runId: string): Promise<BenchmarkRun | null> {
@@ -96,34 +107,86 @@ export async function fetchArchiveSummaries(): Promise<BenchmarkRunSummary[]> {
 export async function fetchLeaderboardData(
   votePhase: LeaderboardVotePhase = "final",
 ): Promise<LeaderboardData> {
-  const global = await fetchQuery(api.leaderboards.get, { votePhase }, await authOptions());
-  const byCategoryEntries = await Promise.all(
-    categories.map(async (category) => {
-      const snapshot = await fetchQuery(
-        api.leaderboards.get,
-        { categoryId: category.id, votePhase },
-        await authOptions(),
-      );
-      return [
-        category.id,
-        {
-          entries: snapshot.entries,
-          totals: snapshot.totals,
-        },
-      ] as const;
-    }),
-  );
-  return {
-    votePhase,
-    global: global.entries,
-    byCategory: Object.fromEntries(
-      byCategoryEntries.map(([categoryId, snapshot]) => [categoryId, snapshot.entries]),
-    ),
-    categoryTotals: Object.fromEntries(
-      byCategoryEntries.map(([categoryId, snapshot]) => [categoryId, snapshot.totals]),
-    ),
-    totals: global.totals,
-  };
+  return fetchLeaderboardDataCached(votePhase);
+}
+
+const fetchLeaderboardDataCached = unstable_cache(
+  async (votePhase: LeaderboardVotePhase): Promise<LeaderboardData> => {
+    const global = await fetchQuery(api.leaderboards.get, { votePhase });
+    const byCategoryEntries = await Promise.all(
+      categories.map(async (category) => {
+        const snapshot = await fetchQuery(api.leaderboards.get, {
+          categoryId: category.id,
+          votePhase,
+        });
+        return [
+          category.id,
+          {
+            entries: snapshot.entries,
+            totals: snapshot.totals,
+          },
+        ] as const;
+      }),
+    );
+    return {
+      votePhase,
+      global: global.entries,
+      byCategory: Object.fromEntries(
+        byCategoryEntries.map(([categoryId, snapshot]) => [categoryId, snapshot.entries]),
+      ),
+      categoryTotals: Object.fromEntries(
+        byCategoryEntries.map(([categoryId, snapshot]) => [categoryId, snapshot.totals]),
+      ),
+      totals: global.totals,
+    };
+  },
+  ["leaderboard-data"],
+  { revalidate: 60 },
+);
+
+const fetchPublicTerminalRunCached = unstable_cache(
+  async (runId: string): Promise<BenchmarkRun | null> => {
+    const run = await fetchQuery(api.runs.get, { runId: runId as never });
+    if (!run) {
+      return null;
+    }
+    if (!isTerminalStatus(run.status)) {
+      return null;
+    }
+    if (run.exposureMode !== "public" && run.exposureMode !== "public_full") {
+      return null;
+    }
+    return run;
+  },
+  ["public-terminal-run"],
+  { revalidate: 300 },
+);
+
+const fetchAuthenticatedTerminalRunCached = unstable_cache(
+  async (runId: string, token: string): Promise<BenchmarkRun | null> => {
+    const run = await fetchQuery(api.runs.get, { runId: runId as never }, { token });
+    if (!run || !isTerminalStatus(run.status)) {
+      return null;
+    }
+    return run;
+  },
+  ["authenticated-terminal-run"],
+  { revalidate: 60 },
+);
+
+export async function fetchArchiveDetailRun(runId: string): Promise<BenchmarkRun | null> {
+  const cached = await fetchPublicTerminalRunCached(runId);
+  if (cached) {
+    return cached;
+  }
+  const token = await convexAuthNextjsToken();
+  if (token) {
+    const authenticatedCached = await fetchAuthenticatedTerminalRunCached(runId, token);
+    if (authenticatedCached) {
+      return authenticatedCached;
+    }
+  }
+  return fetchRun(runId);
 }
 
 export async function createBenchmarkRun(input: {

@@ -230,7 +230,51 @@ function mergeReasoningDetailRecords(
   });
 }
 
-function mapReasoningState(events: Doc<"runEvents">[]) {
+type BatchedReasoningPayload = {
+  batch: true;
+  details: Array<{
+    detailId?: string;
+    detailType: ReasoningDetailRecord["type"];
+    format?: string;
+    index?: number;
+    text?: string;
+    summary?: string;
+    data?: string;
+    signature?: string | null;
+  }>;
+  turn?: number;
+};
+
+type SingleReasoningPayload = {
+  detailId?: string;
+  detailType: ReasoningDetailRecord["type"];
+  format?: string;
+  index?: number;
+  text?: string;
+  summary?: string;
+  data?: string;
+  signature?: string | null;
+  turn?: number;
+};
+
+function isBatchedReasoningPayload(payload: unknown): payload is BatchedReasoningPayload {
+  return (
+    Boolean(payload) &&
+    typeof payload === "object" &&
+    (payload as { batch?: unknown }).batch === true &&
+    Array.isArray((payload as { details?: unknown }).details)
+  );
+}
+
+function isSingleReasoningPayload(payload: unknown): payload is SingleReasoningPayload {
+  return (
+    Boolean(payload) &&
+    typeof payload === "object" &&
+    typeof (payload as { detailType?: unknown }).detailType === "string"
+  );
+}
+
+export function mapReasoningState(events: Doc<"runEvents">[]) {
   const merged = new Map<string, ReasoningDetailRecord>();
 
   for (const event of events) {
@@ -238,21 +282,32 @@ function mapReasoningState(events: Doc<"runEvents">[]) {
       continue;
     }
 
+    if (isBatchedReasoningPayload(event.payload)) {
+      const payload = event.payload;
+      for (const detail of payload.details) {
+        mergeReasoningDetailRecords(
+          merged,
+          event.stage as "generate" | "revise",
+          event.participantModelId,
+          {
+            ...detail,
+            turn: payload.turn,
+          },
+          event.createdAt,
+        );
+      }
+      continue;
+    }
+
+    if (!isSingleReasoningPayload(event.payload)) {
+      continue;
+    }
+
     mergeReasoningDetailRecords(
       merged,
       event.stage as "generate" | "revise",
       event.participantModelId,
-      event.payload as {
-        detailId?: string;
-        detailType: ReasoningDetailRecord["type"];
-        format?: string;
-        index?: number;
-        text?: string;
-        summary?: string;
-        data?: string;
-        signature?: string | null;
-        turn?: number;
-      },
+      event.payload,
       event.createdAt,
     );
   }
@@ -379,6 +434,17 @@ export function runDocsToBenchmarkRun(args: {
       minimumSuccessfulModels: args.run.minimumSuccessfulModels,
     },
   };
+}
+
+export function runDocsToBenchmarkRunLite(args: {
+  run: Doc<"runs">;
+  participants: Doc<"runParticipants">[];
+}): BenchmarkRun {
+  return runDocsToBenchmarkRun({
+    run: args.run,
+    participants: args.participants,
+    events: [],
+  });
 }
 
 export function buildRunSearchText(prompt: string) {

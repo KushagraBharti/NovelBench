@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import ResultsView from "@/components/results/ResultsView";
-import { fetchRun } from "@/lib/convex-server";
+import { fetchArchiveDetailRun } from "@/lib/convex-server";
 import { getCategoryIdentity } from "@/utils/category-identity";
 
 export default async function ArchiveDetailPage({
@@ -10,7 +10,7 @@ export default async function ArchiveDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const run = await fetchRun(id);
+  const run = await fetchArchiveDetailRun(id);
 
   if (!run) {
     notFound();

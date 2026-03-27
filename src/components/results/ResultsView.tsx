@@ -33,9 +33,10 @@ export default function ResultsView({
 }: ResultsViewProps) {
   const { isAuthenticated } = useConvexAuth();
   const requestRunExport = useMutation(api.exports.requestRunExport);
+  const [showExports, setShowExports] = useState(false);
   const runExports = useQuery(
     api.exports.listByRun,
-    isAuthenticated ? { runId: run.id as never } : "skip"
+    isAuthenticated && showExports ? { runId: run.id as never } : "skip"
   );
   const [activeTab, setActiveTab] = useState("ideas");
   const [critiqueFilter, setCritiqueFilter] = useState<string | null>(null);
@@ -452,9 +453,19 @@ export default function ResultsView({
         <div className="mt-10 border-t border-border pt-5">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <span className="label">Export</span>
+            {!showExports && (
+              <button
+                type="button"
+                onClick={() => setShowExports(true)}
+                className="text-sm text-text-muted transition-colors hover:text-text-primary"
+              >
+                Show downloads
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
+                setShowExports(true);
                 setExportMessage("Queueing JSON export...");
                 void requestRunExport({ runId: run.id as never, format: "json" })
                   .then(() => setExportMessage("JSON export queued."))
@@ -469,6 +480,7 @@ export default function ResultsView({
             <button
               type="button"
               onClick={() => {
+                setShowExports(true);
                 setExportMessage("Queueing CSV export...");
                 void requestRunExport({ runId: run.id as never, format: "csv" })
                   .then(() => setExportMessage("CSV export queued."))

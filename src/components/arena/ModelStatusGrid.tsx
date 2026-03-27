@@ -1,6 +1,5 @@
 "use client";
 
-import { clsx } from "clsx";
 import { BenchmarkRun, BenchmarkStatus } from "@/types";
 import { getModelIdentity, getModelOrder } from "@/utils/model-identity";
 
