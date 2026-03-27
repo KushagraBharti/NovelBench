@@ -7,6 +7,7 @@ import { motion } from "framer-motion";
 import { clsx } from "clsx";
 import { toast } from "sonner";
 import type { BenchmarkRunSummary, BenchmarkStatus } from "@/types";
+import { formatShortDate } from "@/lib/dates";
 import { getCategoryIdentity } from "@/utils/category-identity";
 
 type StatusOption = {
@@ -371,7 +372,7 @@ export default function RunListClient({
                         {run.completedModelCount}/{run.modelCount} models completed
                       </span>
                       <span className="hidden h-1 w-1 rounded-full bg-border sm:block" />
-                      <span>{new Date(run.timestamp).toLocaleDateString()}</span>
+                      <span>{formatShortDate(run.timestamp)}</span>
                       {mode === "runs" && isActiveStatus(run.status) ? (
                         <>
                           <span className="hidden h-1 w-1 rounded-full bg-border sm:block" />
@@ -391,7 +392,7 @@ export default function RunListClient({
                       {statusLabel(run.status)}
                     </span>
                     <span className="hidden w-28 shrink-0 text-right font-mono text-sm text-text-muted lg:block">
-                      {new Date(run.timestamp).toLocaleDateString()}
+                      {formatShortDate(run.timestamp)}
                     </span>
                   </Link>
                 </div>

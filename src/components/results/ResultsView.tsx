@@ -6,6 +6,7 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { BenchmarkRun, RunExportEntry } from "@/types";
 import { LiveReasoningActivity, LiveToolActivity } from "@/hooks/useBenchmarkSSE";
 import { api } from "../../../convex/_generated/api";
+import { formatShortDate } from "@/lib/dates";
 import { getModelName } from "@/lib/models";
 import { getModelIdentity, getModelOrder } from "@/utils/model-identity";
 import Tabs, { TabItem } from "@/components/ui/Tabs";
@@ -276,7 +277,7 @@ export default function ResultsView({
             <p className="text-text-primary text-base leading-relaxed">{run.prompt}</p>
           </div>
           <span className="font-mono text-[11px] text-text-muted/40 shrink-0 mt-1">
-            {new Date(run.timestamp).toLocaleDateString()}
+            {formatShortDate(run.timestamp)}
           </span>
         </div>
       </div>

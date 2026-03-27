@@ -106,12 +106,43 @@ export async function fetchArchivePage(filters: ArchiveFilters = {}): Promise<Ar
     requestedStatus && ARCHIVE_TERMINAL_STATUSES.includes(requestedStatus as typeof ARCHIVE_TERMINAL_STATUSES[number])
       ? requestedStatus
       : undefined;
+  const paginationOpts = {
+    numItems: Math.min(Math.max(filters.numItems ?? 25, 1), 50),
+    cursor: filters.cursor ?? null,
+  };
 
-  return fetchRunsPageInternal({
-    ...filters,
-    status: archiveStatus,
-    statuses: filters.statuses ?? (archiveStatus ? undefined : [...ARCHIVE_TERMINAL_STATUSES]),
-  });
+  if (filters.query?.trim()) {
+    return (await fetchQuery(
+      api.runs.searchArchive,
+      {
+        query: filters.query.trim(),
+        organizationId: filters.organizationId as never,
+        projectId: filters.projectId as never,
+        paginationOpts,
+        categoryId: filters.categoryId || undefined,
+        status: archiveStatus,
+        visibility: filters.visibility,
+        createdAfter: filters.createdAfter,
+        createdBefore: filters.createdBefore,
+      },
+      await authOptions(),
+    )) as ArchivePageData;
+  }
+
+  return (await fetchQuery(
+    api.runs.listArchive,
+    {
+      organizationId: filters.organizationId as never,
+      projectId: filters.projectId as never,
+      paginationOpts,
+      categoryId: filters.categoryId || undefined,
+      status: archiveStatus,
+      visibility: filters.visibility,
+      createdAfter: filters.createdAfter,
+      createdBefore: filters.createdBefore,
+    },
+    await authOptions(),
+  )) as ArchivePageData;
 }
 
 export async function fetchArchiveSummaries(): Promise<BenchmarkRunSummary[]> {

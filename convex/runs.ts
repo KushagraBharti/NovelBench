@@ -115,6 +115,8 @@ const TERMINAL_RUN_STATUSES = [
   "error",
 ] as const;
 
+const DELETE_BATCH_SIZE = 32;
+
 const CHECKPOINT_STAGES = [
   "generate",
   "critique",
@@ -1028,6 +1030,50 @@ export const list = query({
   },
 });
 
+export const listArchive = query({
+  args: {
+    paginationOpts: paginationOptsValidator,
+    organizationId: v.optional(v.id("organizations")),
+    projectId: v.optional(v.id("projects")),
+    categoryId: v.optional(v.string()),
+    status: v.optional(v.string()),
+    visibility: v.optional(exposureModeValidator),
+    createdAfter: v.optional(v.number()),
+    createdBefore: v.optional(v.number()),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const archiveArgs = {
+      ...args,
+      statuses: args.status ? undefined : [...TERMINAL_RUN_STATUSES],
+    };
+    const buildBaseQuery = () => buildRunSearchDocsBaseQuery(ctx, archiveArgs);
+    const page = await collectVisibleRunSearchDocsPage(ctx, archiveArgs, (paginationOpts) =>
+      buildBaseQuery().order("desc").paginate(paginationOpts),
+    );
+    const [filteredMetrics, allCategoryMetrics] = await Promise.all([
+      collectVisibleRunSearchDocMetrics(ctx, archiveArgs, () =>
+        buildBaseQuery().order("desc").collect(),
+      ),
+      collectVisibleRunSearchDocMetrics(
+        ctx,
+        archiveArgs,
+        () =>
+          buildRunSearchDocsBaseQuery(ctx, archiveArgs, { ignoreCategory: true })
+            .order("desc")
+            .collect(),
+        { ignoreCategory: true },
+      ),
+    ]);
+
+    return {
+      ...page,
+      totalMatchingRuns: filteredMetrics.totalMatchingRuns,
+      categoryCounts: allCategoryMetrics.categoryCounts,
+    };
+  },
+});
+
 export const get = query({
   args: { runId: v.id("runs") },
   returns: v.union(v.null(), v.any()),
@@ -1262,6 +1308,129 @@ export const search = query({
           { ...args, categoryId: undefined },
           () =>
             buildRunSearchDocsBaseQuery(ctx, args, { ignoreCategory: true })
+              .order("desc")
+              .collect(),
+          { extraFilter },
+        ),
+      ]);
+
+      return {
+        ...page,
+        totalMatchingRuns: filteredMetrics.totalMatchingRuns,
+        categoryCounts: allCategoryMetrics.categoryCounts,
+      };
+    }
+  },
+});
+
+export const searchArchive = query({
+  args: {
+    query: v.string(),
+    paginationOpts: v.optional(paginationOptsValidator),
+    limit: v.optional(v.number()),
+    organizationId: v.optional(v.id("organizations")),
+    projectId: v.optional(v.id("projects")),
+    categoryId: v.optional(v.string()),
+    status: v.optional(v.string()),
+    visibility: v.optional(exposureModeValidator),
+    createdAfter: v.optional(v.number()),
+    createdBefore: v.optional(v.number()),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const archiveArgs = {
+      ...args,
+      statuses: args.status ? undefined : [...TERMINAL_RUN_STATUSES],
+    };
+    const paginationOpts = args.paginationOpts
+      ? {
+          ...args.paginationOpts,
+          numItems: Math.min(Math.max(args.paginationOpts.numItems, 1), 50),
+        }
+      : {
+          numItems: Math.min(args.limit ?? 20, 50),
+          cursor: null,
+        };
+
+    const normalizedQuery = args.query.trim().toLowerCase();
+    const buildSearchQuery = (categoryId?: string) =>
+      ((ctx.db.query("runSearchDocs") as any).withSearchIndex("search_prompt", (q: any) => {
+        let next = q.search("promptSearchText", args.query);
+        if (args.visibility) {
+          next = next.eq("visibility", args.visibility);
+        }
+        if (args.organizationId) {
+          next = next.eq("organizationId", args.organizationId);
+        }
+        if (args.projectId) {
+          next = next.eq("projectId", args.projectId);
+        }
+        if (categoryId) {
+          next = next.eq("categoryId", categoryId);
+        }
+        if (args.status) {
+          next = next.eq("status", args.status as any);
+        }
+        return next;
+      })) as any;
+
+    try {
+      const fetchSearchPage = (nextPaginationOpts: { numItems: number; cursor: string | null }) =>
+        buildSearchQuery(args.categoryId).paginate(nextPaginationOpts);
+      const page = await collectVisibleRunSearchDocsPage(
+        ctx,
+        {
+          ...archiveArgs,
+          paginationOpts,
+        },
+        fetchSearchPage,
+      );
+      const [filteredMetrics, allCategoryMetrics] = await Promise.all([
+        collectVisibleRunSearchDocMetrics(ctx, archiveArgs, () =>
+          buildSearchQuery(args.categoryId).collect(),
+        ),
+        collectVisibleRunSearchDocMetrics(
+          ctx,
+          { ...archiveArgs, categoryId: undefined },
+          () => buildSearchQuery(undefined).collect(),
+        ),
+      ]);
+
+      return {
+        ...page,
+        totalMatchingRuns: filteredMetrics.totalMatchingRuns,
+        categoryCounts: allCategoryMetrics.categoryCounts,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("is currently staged and not available to query")) {
+        throw error;
+      }
+
+      const buildBaseQuery = () => buildRunSearchDocsBaseQuery(ctx, archiveArgs);
+      const extraFilter = (searchDoc: Doc<"runSearchDocs">) =>
+        searchDoc.promptSearchText.includes(normalizedQuery);
+      const page = await collectVisibleRunSearchDocsPage(
+        ctx,
+        {
+          ...archiveArgs,
+          paginationOpts,
+        },
+        (nextPaginationOpts) => buildBaseQuery().order("desc").paginate(nextPaginationOpts),
+        { extraFilter },
+      );
+      const [filteredMetrics, allCategoryMetrics] = await Promise.all([
+        collectVisibleRunSearchDocMetrics(
+          ctx,
+          archiveArgs,
+          () => buildBaseQuery().order("desc").collect(),
+          { extraFilter },
+        ),
+        collectVisibleRunSearchDocMetrics(
+          ctx,
+          { ...archiveArgs, categoryId: undefined },
+          () =>
+            buildRunSearchDocsBaseQuery(ctx, archiveArgs, { ignoreCategory: true })
               .order("desc")
               .collect(),
           { extraFilter },
@@ -1985,7 +2154,7 @@ export const removeBatchInternal = internalMutation({
     const usageEntries = await ctx.db
       .query("usageLedger")
       .withIndex("by_run", (q) => q.eq("runId", run._id))
-      .take(128);
+      .take(DELETE_BATCH_SIZE);
     if (usageEntries.length > 0) {
       for (const entry of usageEntries) {
         await ctx.db.delete(entry._id);
@@ -1997,7 +2166,7 @@ export const removeBatchInternal = internalMutation({
     const runSearchDocs = await ctx.db
       .query("runSearchDocs")
       .withIndex("by_run", (q) => q.eq("runId", run._id))
-      .take(128);
+      .take(DELETE_BATCH_SIZE);
     if (runSearchDocs.length > 0) {
       for (const doc of runSearchDocs) {
         await ctx.db.delete(doc._id);
@@ -2009,7 +2178,7 @@ export const removeBatchInternal = internalMutation({
     const artifacts = await ctx.db
       .query("runArtifacts")
       .withIndex("by_run", (q) => q.eq("runId", run._id))
-      .take(64);
+      .take(DELETE_BATCH_SIZE);
     if (artifacts.length > 0) {
       for (const artifact of artifacts) {
         if (artifact.storageId) {
@@ -2024,7 +2193,7 @@ export const removeBatchInternal = internalMutation({
     const events = await ctx.db
       .query("runEvents")
       .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
-      .take(128);
+      .take(DELETE_BATCH_SIZE);
     if (events.length > 0) {
       for (const event of events) {
         await ctx.db.delete(event._id);
@@ -2036,7 +2205,7 @@ export const removeBatchInternal = internalMutation({
     const participants = await ctx.db
       .query("runParticipants")
       .withIndex("by_run", (q) => q.eq("runId", run._id))
-      .take(64);
+      .take(DELETE_BATCH_SIZE);
     if (participants.length > 0) {
       for (const participant of participants) {
         await ctx.db.delete(participant._id);
@@ -2056,7 +2225,7 @@ export const removeBatchInternal = internalMutation({
         .withIndex("by_resource", (q) =>
           q.eq("resourceType", "export").eq("resourceId", String(entry._id)),
         )
-        .take(128);
+        .take(DELETE_BATCH_SIZE);
       if (exportLogs.length > 0) {
         for (const log of exportLogs) {
           await ctx.db.delete(log._id);
@@ -2081,7 +2250,7 @@ export const removeBatchInternal = internalMutation({
       const attempts = await ctx.db
         .query("jobAttempts")
         .withIndex("by_job", (q) => q.eq("jobId", job._id))
-        .take(128);
+        .take(DELETE_BATCH_SIZE);
       if (attempts.length > 0) {
         for (const attempt of attempts) {
           await ctx.db.delete(attempt._id);
@@ -2097,7 +2266,7 @@ export const removeBatchInternal = internalMutation({
     const runLogs = await ctx.db
       .query("auditLogs")
       .withIndex("by_resource", (q) => q.eq("resourceType", "run").eq("resourceId", String(run._id)))
-      .take(128);
+      .take(DELETE_BATCH_SIZE);
     if (runLogs.length > 0) {
       for (const log of runLogs) {
         await ctx.db.delete(log._id);

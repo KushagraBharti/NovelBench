@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import type { BenchmarkRun } from "@/types";
 import { getCategoryIdentity } from "@/utils/category-identity";
 import { useBenchmarkSSE } from "@/hooks/useBenchmarkSSE";
+import { formatDateTime } from "@/lib/dates";
 import ArenaRunner from "@/components/arena/ArenaRunner";
 import HumanCritiquePanel from "@/components/arena/HumanCritiquePanel";
 import ResultsView from "@/components/results/ResultsView";
@@ -111,7 +112,7 @@ export default function RunDetailClient({
                 {activeRun.status.replaceAll("_", " ")}
               </p>
               <p className="font-mono text-sm text-text-muted">
-                {new Date(activeRun.timestamp).toLocaleString()}
+                {formatDateTime(activeRun.timestamp)}
               </p>
             </div>
           </div>
