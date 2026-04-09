@@ -1,5 +1,6 @@
 "use client";
 
+import { CSSProperties } from "react";
 import { motion } from "framer-motion";
 import { BenchmarkStatus, RunCheckpointStage } from "@/types";
 import { clsx } from "clsx";
@@ -56,6 +57,10 @@ export default function StageOrbs({
       {stages.map((stage, i) => {
         const isComplete = currentIndex > i;
         const isCurrent = currentIndex === i;
+        const progressStyle: CSSProperties = {
+          backgroundColor: stage.color,
+          opacity: isComplete ? 0.5 : 1,
+        };
 
         return (
           <div key={stage.status} className="relative">
@@ -63,10 +68,10 @@ export default function StageOrbs({
             <div className="h-[2px] w-full bg-border/20 mb-4">
               {(isComplete || isCurrent) && (
                 <motion.div
-                  className="h-full"
+                  className="h-full origin-left"
                   initial={{ scaleX: 0 }}
                   animate={{ scaleX: 1 }}
-                  style={{ transformOrigin: "left", backgroundColor: stage.color, opacity: isComplete ? 0.5 : 1 }}
+                  style={progressStyle}
                   transition={{ duration: 0.5, delay: i * 0.1, ease: "easeOut" }}
                 />
               )}

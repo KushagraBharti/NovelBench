@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { CSSProperties, ReactNode } from "react";
 import { motion } from "framer-motion";
 import { clsx } from "clsx";
 
@@ -37,7 +37,7 @@ export default function Card({
     className
   );
 
-  const cardStyle = {
+  const cardStyle: CSSProperties = {
     ...(borderColor ? { borderColor } : {}),
     ...(glowColor
       ? { boxShadow: `0 0 20px ${glowColor}15, 0 0 60px ${glowColor}05` }

@@ -14,7 +14,6 @@ const legacyModelAliases: Record<string, string> = {
   "gemini-3-flash": "gemini-3.1-flash-lite-preview",
   "grok-4.1-fast": "grok-4-fast",
   "kimi-k2": "kimi-k2.5",
-  "glm-4.5": "glm-5",
   "mistral-large": "mistral-medium-3.1",
   "ministral-8b": "mistral-small-3.2-24b-instruct-2506",
 };
@@ -186,9 +185,9 @@ const curatedCatalog: ModelCatalogEntry[] = [
     active: true,
   },
   {
-    id: "glm-5",
-    openRouterId: "z-ai/glm-5",
-    name: "GLM 5",
+    id: "glm-5.1",
+    openRouterId: "z-ai/glm-5.1",
+    name: "GLM 5.1",
     provider: "OpenRouter",
     lab: "Zhipu AI",
     tier: "flagship",
