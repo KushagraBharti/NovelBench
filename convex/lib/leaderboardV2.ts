@@ -10,7 +10,7 @@ import type {
   Ranking,
 } from "@/types";
 import { categories } from "@/lib/categories";
-import { getModelCatalog } from "@/lib/models";
+import { getFullModelCatalog } from "@/lib/models";
 import { getModelIdentity } from "@/utils/model-identity";
 
 const DEFAULT_RATING = 1500;
@@ -30,7 +30,7 @@ const JUDGE_WEIGHT_CONFIDENCE_FLOOR = 45;
 const JUDGE_WEIGHT_SCALE = 250;
 const AUDIT_JUDGE_LIMIT = 6;
 
-const MODEL_LAB_BY_ID = new Map(getModelCatalog().map((model) => [model.id, model.lab]));
+const MODEL_LAB_BY_ID = new Map(getFullModelCatalog().map((model) => [model.id, model.lab]));
 
 function average(values: number[]) {
   if (values.length === 0) {

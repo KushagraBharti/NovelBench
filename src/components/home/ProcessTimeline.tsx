@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { motion, useInView } from "framer-motion";
 
 const stages = [
-  { number: "01", title: "Generate", desc: "All four models create ideas from your prompt, working independently and in parallel." },
+  { number: "01", title: "Generate", desc: "Selected models create ideas from your prompt, working independently and in parallel." },
   { number: "02", title: "Critique", desc: "Each model anonymously reviews and scores the others. No model knows whose work it's judging." },
   { number: "03", title: "Revise", desc: "Armed with feedback, every model refines and strengthens their original idea." },
   { number: "04", title: "Crown", desc: "A final anonymous vote determines which model produced the most creative work." },

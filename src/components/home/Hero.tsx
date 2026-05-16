@@ -39,7 +39,7 @@ export default function Hero() {
             transition={{ duration: 0.5, delay: 0.5 }}
             className="text-text-primary/80 text-xl leading-relaxed max-w-lg mb-12 [text-shadow:0_1px_6px_rgba(0,0,0,0.8),0_2px_16px_rgba(0,0,0,0.5)]"
           >
-            Four models generate ideas, critique each other anonymously,
+            Frontier models generate ideas, critique each other anonymously,
             revise under pressure, and vote. The best creative mind wins.
           </motion.p>
 

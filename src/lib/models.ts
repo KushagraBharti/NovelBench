@@ -5,20 +5,114 @@ export const MODEL_SELECTION_LIMITS = {
   max: 8,
 } as const;
 
-const legacyModelAliases: Record<string, string> = {
-  "gpt-5.4": "gpt-5.2-pro",
-  "gpt-5.4-mini": "gpt-5-mini",
-  "claude-sonnet-4.5": "claude-sonnet-4.6",
-  "gemini-2.5-pro": "gemini-3.1-pro-preview",
-  "gemini-2.5-flash": "gemini-3.1-flash-lite-preview",
-  "gemini-3-flash": "gemini-3.1-flash-lite-preview",
-  "grok-4.1-fast": "grok-4-fast",
-  "kimi-k2": "kimi-k2.5",
-  "mistral-large": "mistral-medium-3.1",
-  "ministral-8b": "mistral-small-3.2-24b-instruct-2506",
-};
+const legacyModelAliases: Record<string, string> = {};
 
 const curatedCatalog: ModelCatalogEntry[] = [
+  {
+    id: "gpt-5.5",
+    openRouterId: "openai/gpt-5.5",
+    name: "GPT-5.5",
+    provider: "OpenRouter",
+    lab: "OpenAI",
+    tier: "flagship",
+    tags: ["reasoning", "general", "frontier"],
+    description: "OpenAI's pinned GPT-5.5 frontier model on OpenRouter.",
+    personality: "The tactician. Methodical, broad, and usually difficult to rattle.",
+    color: "#879cb3",
+    initial: "G5",
+    defaultEnabled: true,
+    active: true,
+  },
+  {
+    id: "claude-opus-4.7",
+    openRouterId: "anthropic/claude-opus-4.7",
+    name: "Claude Opus 4.7",
+    provider: "OpenRouter",
+    lab: "Anthropic",
+    tier: "flagship",
+    tags: ["reasoning", "writing", "analysis"],
+    description: "Anthropic's pinned Opus 4.7 flagship model for complex, long-horizon work.",
+    personality: "The closer. Expensive, deliberate, and built for hard problems.",
+    color: "#8f82b8",
+    initial: "Co",
+    defaultEnabled: true,
+    active: true,
+  },
+  {
+    id: "gemini-3.1-pro",
+    openRouterId: "google/gemini-3.1-pro",
+    name: "Gemini 3.1 Pro",
+    provider: "OpenRouter",
+    lab: "Google DeepMind",
+    tier: "flagship",
+    tags: ["reasoning", "multimodal", "analysis"],
+    description: "Google's pinned Gemini 3.1 Pro model.",
+    personality: "The systems thinker. Sees structure everywhere.",
+    color: "#7ba894",
+    initial: "Gp",
+    defaultEnabled: true,
+    active: true,
+  },
+  {
+    id: "gemini-3.1-flash",
+    openRouterId: "google/gemini-3.1-flash",
+    name: "Gemini 3.1 Flash",
+    provider: "OpenRouter",
+    lab: "Google DeepMind",
+    tier: "fast",
+    tags: ["fast", "multimodal", "analysis"],
+    description: "Google's pinned Gemini 3.1 Flash model.",
+    personality: "The polymath. Rapid associations, low drag.",
+    color: "#75b59c",
+    initial: "Gf",
+    defaultEnabled: true,
+    active: true,
+  },
+  {
+    id: "grok-4.3",
+    openRouterId: "x-ai/grok-4.3",
+    name: "Grok 4.3",
+    provider: "OpenRouter",
+    lab: "xAI",
+    tier: "flagship",
+    tags: ["reasoning", "frontier", "creative"],
+    description: "xAI's pinned Grok 4.3 flagship model.",
+    personality: "The wildcard. Loves bold swings.",
+    color: "#b8896b",
+    initial: "Gx",
+    defaultEnabled: true,
+    active: true,
+  },
+  {
+    id: "deepseek-v4-pro",
+    openRouterId: "deepseek/deepseek-v4-pro",
+    name: "DeepSeek V4 Pro",
+    provider: "OpenRouter",
+    lab: "DeepSeek",
+    tier: "reasoning",
+    tags: ["reasoning", "open-weight", "frontier"],
+    description: "DeepSeek's pinned V4 Pro frontier model.",
+    personality: "The challenger. Efficient and surprisingly sharp.",
+    color: "#4da1a9",
+    initial: "D4",
+    defaultEnabled: true,
+    active: true,
+  },
+  {
+    id: "kimi-k2.6",
+    openRouterId: "moonshotai/kimi-k2.6",
+    name: "Kimi K2.6",
+    provider: "OpenRouter",
+    lab: "Moonshot AI",
+    tier: "flagship",
+    tags: ["reasoning", "long-context", "frontier"],
+    description: "Moonshot's pinned Kimi K2.6 release on OpenRouter.",
+    personality: "The archivist. Likes large context and neat synthesis.",
+    color: "#6d8fcb",
+    initial: "K2",
+    defaultEnabled: true,
+    active: true,
+  },
   {
     id: "gpt-5.4",
     openRouterId: "openai/gpt-5.4",
@@ -31,8 +125,8 @@ const curatedCatalog: ModelCatalogEntry[] = [
     personality: "The tactician. Methodical, broad, and usually difficult to rattle.",
     color: "#879cb3",
     initial: "G2",
-    defaultEnabled: true,
-    active: true,
+    defaultEnabled: false,
+    active: false,
   },
   {
     id: "gpt-5.4-mini",
@@ -47,7 +141,7 @@ const curatedCatalog: ModelCatalogEntry[] = [
     color: "#7b93a8",
     initial: "Gm",
     defaultEnabled: false,
-    active: true,
+    active: false,
   },
   {
     id: "claude-opus-4.6",
@@ -61,8 +155,8 @@ const curatedCatalog: ModelCatalogEntry[] = [
     personality: "The closer. Expensive, deliberate, and built for hard problems.",
     color: "#8f82b8",
     initial: "Co",
-    defaultEnabled: true,
-    active: true,
+    defaultEnabled: false,
+    active: false,
   },
   {
     id: "claude-sonnet-4.6",
@@ -77,7 +171,7 @@ const curatedCatalog: ModelCatalogEntry[] = [
     color: "#a190b8",
     initial: "Cs",
     defaultEnabled: false,
-    active: true,
+    active: false,
   },
   {
     id: "claude-haiku-4.5",
@@ -92,7 +186,7 @@ const curatedCatalog: ModelCatalogEntry[] = [
     color: "#9b8eb8",
     initial: "Ch",
     defaultEnabled: false,
-    active: true,
+    active: false,
   },
   {
     id: "gemini-3.1-pro-preview",
@@ -106,8 +200,8 @@ const curatedCatalog: ModelCatalogEntry[] = [
     personality: "The systems thinker. Sees structure everywhere.",
     color: "#7ba894",
     initial: "Gp",
-    defaultEnabled: true,
-    active: true,
+    defaultEnabled: false,
+    active: false,
   },
   {
     id: "gemini-3.1-flash-lite-preview",
@@ -122,7 +216,7 @@ const curatedCatalog: ModelCatalogEntry[] = [
     color: "#75b59c",
     initial: "Gf",
     defaultEnabled: false,
-    active: true,
+    active: false,
   },
   {
     id: "grok-4.20-beta",
@@ -136,8 +230,8 @@ const curatedCatalog: ModelCatalogEntry[] = [
     personality: "The wildcard. Loves bold swings.",
     color: "#b8896b",
     initial: "G4",
-    defaultEnabled: true,
-    active: true,
+    defaultEnabled: false,
+    active: false,
   },
   {
     id: "x-ai/grok-4.1-fast",
@@ -152,7 +246,7 @@ const curatedCatalog: ModelCatalogEntry[] = [
     color: "#b8896b",
     initial: "Gk",
     defaultEnabled: false,
-    active: true,
+    active: false,
   },
   {
     id: "deepseek-v3.2",
@@ -167,7 +261,7 @@ const curatedCatalog: ModelCatalogEntry[] = [
     color: "#4da1a9",
     initial: "Dr",
     defaultEnabled: false,
-    active: true,
+    active: false,
   },
   {
     id: "kimi-k2.5",
@@ -182,7 +276,7 @@ const curatedCatalog: ModelCatalogEntry[] = [
     color: "#6d8fcb",
     initial: "K2",
     defaultEnabled: false,
-    active: true,
+    active: false,
   },
   {
     id: "glm-5.1",
@@ -197,7 +291,7 @@ const curatedCatalog: ModelCatalogEntry[] = [
     color: "#7b6bc7",
     initial: "Gl",
     defaultEnabled: false,
-    active: true,
+    active: false,
   },
   {
     id: "glm-5-turbo",
@@ -212,14 +306,22 @@ const curatedCatalog: ModelCatalogEntry[] = [
     color: "#8877d6",
     initial: "Gf",
     defaultEnabled: false,
-    active: true,
+    active: false,
   },
 ];
+
+function withCatalogDefaults(model: ModelCatalogEntry): ModelCatalogEntry {
+  return { supportsToolCalling: true, ...model };
+}
+
+export function getFullModelCatalog(): ModelCatalogEntry[] {
+  return curatedCatalog.map(withCatalogDefaults);
+}
 
 export function getModelCatalog(): ModelCatalogEntry[] {
   return curatedCatalog
     .filter((model) => model.active)
-    .map((model) => ({ supportsToolCalling: true, ...model }));
+    .map(withCatalogDefaults);
 }
 
 export function getDefaultModels(): ModelCatalogEntry[] {
@@ -233,12 +335,16 @@ export function getModelById(id: string): ModelCatalogEntry | undefined {
   return alias ? getModelCatalog().find((model) => model.id === alias) : undefined;
 }
 
+export function getModelIdentityById(id: string): ModelCatalogEntry | undefined {
+  return getFullModelCatalog().find((model) => model.id === id);
+}
+
 export function getModelByOpenRouterId(openRouterId: string): ModelCatalogEntry | undefined {
   return getModelCatalog().find((model) => model.openRouterId === openRouterId);
 }
 
 export function getModelName(id: string): string {
-  return getModelById(id)?.name ?? id;
+  return getModelIdentityById(id)?.name ?? id;
 }
 
 export function normalizeCustomModelId(modelId: string): string {

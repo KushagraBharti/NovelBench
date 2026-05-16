@@ -1,4 +1,4 @@
-import { getDefaultModels, getModelCatalog } from "@/lib/models";
+import { getDefaultModels, getModelIdentityById } from "@/lib/models";
 import { ModelCatalogEntry } from "@/types";
 
 export interface ModelIdentity {
@@ -11,7 +11,7 @@ export interface ModelIdentity {
 }
 
 export function getModelIdentity(modelId: string): ModelIdentity {
-  const model = getModelCatalog().find((entry) => entry.id === modelId);
+  const model = getModelIdentityById(modelId);
   return toIdentity(
     model ?? {
       id: modelId,

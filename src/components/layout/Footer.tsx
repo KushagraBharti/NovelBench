@@ -6,7 +6,7 @@ export default function Footer() {
       <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col sm:flex-row items-center justify-between gap-4">
         <span className="font-display text-base text-text-muted">NovelBench</span>
         <p className="text-base text-text-muted">
-          Four models. Eight domains. One arena.
+          Frontier models. Eight domains. One arena.
         </p>
       </div>
       <div className="text-center pb-4">
