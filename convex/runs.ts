@@ -145,6 +145,8 @@ const LIVE_ACTIVITY_EVENT_KINDS = [
   "reasoning_detail",
 ] as const;
 
+const MANUAL_ARCHIVE_SEARCH_CURSOR_PREFIX = "archive-search-offset:";
+
 type LiveActivityEventKind = (typeof LIVE_ACTIVITY_EVENT_KINDS)[number];
 
 function participantReachedBenchmarkCompletion(stage: RunCheckpointStage) {
@@ -280,6 +282,18 @@ function matchesStatusFilters(
     return args.status === status;
   }
   return true;
+}
+
+function parseManualArchiveSearchCursor(cursor: string | null) {
+  if (!cursor?.startsWith(MANUAL_ARCHIVE_SEARCH_CURSOR_PREFIX)) {
+    return 0;
+  }
+  const parsed = Number(cursor.slice(MANUAL_ARCHIVE_SEARCH_CURSOR_PREFIX.length));
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
+function buildManualArchiveSearchCursor(offset: number) {
+  return `${MANUAL_ARCHIVE_SEARCH_CURSOR_PREFIX}${offset}`;
 }
 
 async function getProjectMembership(
@@ -889,6 +903,72 @@ async function collectVisibleRunSearchDocsPage(
     page: results,
     isDone: pageResult.isDone,
     continueCursor: pageResult.continueCursor,
+  };
+}
+
+async function collectVisibleRunSearchDocsManualPage(
+  ctx: QueryCtx,
+  args: {
+    paginationOpts: { numItems: number; cursor: string | null };
+    categoryId?: string;
+    status?: string;
+    statuses?: string[];
+    visibility?: Doc<"runs">["visibility"];
+    createdAfter?: number;
+    createdBefore?: number;
+  },
+  docs: Doc<"runSearchDocs">[],
+  options?: {
+    extraFilter?: (searchDoc: Doc<"runSearchDocs">) => boolean;
+  },
+) {
+  const viewerUserId = await getAuthUserId(ctx);
+  const results: BenchmarkRunSummary[] = [];
+  const startOffset = parseManualArchiveSearchCursor(args.paginationOpts.cursor);
+  let visibleOffset = 0;
+  let continueCursor: string | null = null;
+
+  for (const searchDoc of docs) {
+    if (!matchesRunSearchDocFilters(searchDoc, args)) {
+      continue;
+    }
+    if (options?.extraFilter && !options.extraFilter(searchDoc)) {
+      continue;
+    }
+
+    const run = await ctx.db.get(searchDoc.runId);
+    if (!run) {
+      continue;
+    }
+
+    const membership = viewerUserId
+      ? await getProjectMembership(ctx, viewerUserId, run.projectId)
+      : null;
+    const organizationMembership = viewerUserId
+      ? await getOrganizationMembership(ctx, viewerUserId, run.organizationId)
+      : null;
+    if (!canReadRun(run, viewerUserId, membership, organizationMembership)) {
+      continue;
+    }
+
+    if (visibleOffset < startOffset) {
+      visibleOffset += 1;
+      continue;
+    }
+
+    results.push(runSummaryFromSearchDoc(searchDoc, run, canEditRun(run, viewerUserId, membership)));
+    visibleOffset += 1;
+
+    if (results.length >= args.paginationOpts.numItems) {
+      continueCursor = buildManualArchiveSearchCursor(visibleOffset);
+      break;
+    }
+  }
+
+  return {
+    page: results,
+    isDone: continueCursor === null,
+    continueCursor,
   };
 }
 
@@ -1665,7 +1745,7 @@ export const searchArchive = query({
         };
 
     const normalizedQuery = args.query.trim().toLowerCase();
-    const buildSearchQuery = (categoryId?: string) =>
+    const buildSearchQuery = (categoryId?: string, status?: string) =>
       ((ctx.db.query("runSearchDocs") as any).withSearchIndex("search_prompt", (q: any) => {
         let next = q.search("promptSearchText", args.query);
         if (args.visibility) {
@@ -1680,13 +1760,53 @@ export const searchArchive = query({
         if (categoryId) {
           next = next.eq("categoryId", categoryId);
         }
-        if (args.status) {
-          next = next.eq("status", args.status as any);
+        const statusFilter = status ?? args.status;
+        if (statusFilter) {
+          next = next.eq("status", statusFilter as any);
         }
         return next;
       })) as any;
+    const collectTerminalSearchDocs = async (categoryId?: string) => {
+      const byStatus = await Promise.all(
+        TERMINAL_RUN_STATUSES.map((status) => buildSearchQuery(categoryId, status).collect()),
+      );
+      const deduped = new Map<string, Doc<"runSearchDocs">>();
+      for (const searchDoc of byStatus.flat() as Doc<"runSearchDocs">[]) {
+        deduped.set(String(searchDoc._id), searchDoc);
+      }
+      return Array.from(deduped.values()).sort((a, b) => b.createdAt - a.createdAt);
+    };
 
     try {
+      if (!args.status) {
+        const [terminalDocs, allCategoryTerminalDocs] = await Promise.all([
+          collectTerminalSearchDocs(args.categoryId),
+          collectTerminalSearchDocs(undefined),
+        ]);
+        const page = await collectVisibleRunSearchDocsManualPage(
+          ctx,
+          {
+            ...archiveArgs,
+            paginationOpts,
+          },
+          terminalDocs,
+        );
+        const [filteredMetrics, allCategoryMetrics] = await Promise.all([
+          collectVisibleRunSearchDocMetrics(ctx, archiveArgs, () => Promise.resolve(terminalDocs)),
+          collectVisibleRunSearchDocMetrics(
+            ctx,
+            { ...archiveArgs, categoryId: undefined },
+            () => Promise.resolve(allCategoryTerminalDocs),
+          ),
+        ]);
+
+        return {
+          ...page,
+          totalMatchingRuns: filteredMetrics.totalMatchingRuns,
+          categoryCounts: allCategoryMetrics.categoryCounts,
+        };
+      }
+
       const fetchSearchPage = (nextPaginationOpts: { numItems: number; cursor: string | null }) =>
         buildSearchQuery(args.categoryId).paginate(nextPaginationOpts);
       const page = await collectVisibleRunSearchDocsPage(
@@ -1722,6 +1842,44 @@ export const searchArchive = query({
       const buildBaseQuery = () => buildRunSearchDocsBaseQuery(ctx, archiveArgs);
       const extraFilter = (searchDoc: Doc<"runSearchDocs">) =>
         searchDoc.promptSearchText.includes(normalizedQuery);
+      if (!args.status) {
+        const [terminalDocs, allCategoryTerminalDocs] = await Promise.all([
+          buildBaseQuery().order("desc").collect(),
+          buildRunSearchDocsBaseQuery(ctx, archiveArgs, { ignoreCategory: true })
+            .order("desc")
+            .collect(),
+        ]);
+        const page = await collectVisibleRunSearchDocsManualPage(
+          ctx,
+          {
+            ...archiveArgs,
+            paginationOpts,
+          },
+          terminalDocs,
+          { extraFilter },
+        );
+        const [filteredMetrics, allCategoryMetrics] = await Promise.all([
+          collectVisibleRunSearchDocMetrics(
+            ctx,
+            archiveArgs,
+            () => Promise.resolve(terminalDocs),
+            { extraFilter },
+          ),
+          collectVisibleRunSearchDocMetrics(
+            ctx,
+            { ...archiveArgs, categoryId: undefined },
+            () => Promise.resolve(allCategoryTerminalDocs),
+            { extraFilter },
+          ),
+        ]);
+
+        return {
+          ...page,
+          totalMatchingRuns: filteredMetrics.totalMatchingRuns,
+          categoryCounts: allCategoryMetrics.categoryCounts,
+        };
+      }
+
       const page = await collectVisibleRunSearchDocsPage(
         ctx,
         {
@@ -2261,12 +2419,11 @@ export const proceed = mutation({
     if (!run) {
       throw new ConvexError("Run not found");
     }
-    const { user } = await requireProjectAccess(ctx, run.projectId, "editor");
-    const now = Date.now();
-
-    if (run.status !== "awaiting_human_critique") {
+    if (run.status !== "awaiting_human_critique" || run.checkpointStage !== "human_critique") {
       throw new ConvexError("Run is not waiting for human critique");
     }
+    const { user } = await requireProjectAccess(ctx, run.projectId, "editor");
+    const now = Date.now();
 
     const lifecycleState = buildRunLifecycleState("queued", now);
     await ctx.db.patch(run._id, {
@@ -2392,6 +2549,12 @@ export const submitHumanCritiques = mutation({
     const run = await ctx.db.get(args.runId);
     if (!run) {
       throw new ConvexError("Run not found");
+    }
+    if (run.status !== "awaiting_human_critique" || run.checkpointStage !== "human_critique") {
+      throw new ConvexError("Run is not waiting for human critique");
+    }
+    if (args.critiques.length === 0) {
+      throw new ConvexError("At least one human critique is required");
     }
     const { user } = await requireProjectAccess(ctx, run.projectId, "editor");
     const now = Date.now();

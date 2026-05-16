@@ -124,7 +124,7 @@ export const create = mutation({
       organizationId: args.organizationId,
       name: args.name.trim(),
       slug: `${slugify(args.name)}-${String(Date.now()).slice(-6)}`,
-      visibility: "public_full",
+      visibility: args.visibility ?? "public_full",
       createdByUserId: user._id,
     });
     await ctx.db.insert("projectMembers", {
@@ -222,7 +222,7 @@ export const updateVisibility = mutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     await requireProjectAccess(ctx, args.projectId, "editor");
-    await ctx.db.patch(args.projectId, { visibility: "public_full" });
+    await ctx.db.patch(args.projectId, { visibility: args.visibility });
     return null;
   },
 });
