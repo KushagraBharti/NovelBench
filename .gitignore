@@ -60,7 +60,6 @@ next-env.d.ts
 .goose/
 .kilocode/
 .kiro/
-.mcpjam/
 .mux/
 .neovate/
 .openhands/
