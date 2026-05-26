@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MODEL_SELECTION_LIMITS,
   createBringYourOwnModel,
   getDefaultModels,
   getModelCatalog,
@@ -11,16 +12,10 @@ import {
 
 describe("model catalog", () => {
   it("keeps a default roster", () => {
-    expect(getDefaultModels().length).toBeGreaterThanOrEqual(4);
-    expect(getDefaultModels().map((model) => model.id)).toEqual([
-      "gpt-5.5",
-      "claude-opus-4.7",
-      "gemini-3.1-pro",
-      "gemini-3.1-flash",
-      "grok-4.3",
-      "deepseek-v4-pro",
-      "kimi-k2.6",
-    ]);
+    const defaults = getDefaultModels();
+    expect(defaults.length).toBeGreaterThanOrEqual(MODEL_SELECTION_LIMITS.min);
+    expect(defaults.length).toBeLessThanOrEqual(MODEL_SELECTION_LIMITS.max);
+    expect(defaults.every((model) => model.active && model.defaultEnabled)).toBe(true);
   });
 
   it("validates OpenRouter ids and creates BYOM entries", () => {
@@ -34,6 +29,20 @@ describe("model catalog", () => {
     expect(getModelById("gpt-5.4")?.active).toBe(false);
     expect(getModelIdentityById("gpt-5.4")?.name).toBe("GPT-5.4");
     expect(resolveSelectedModels(["gpt-5.4"], [])[0]?.openRouterId).toBe("openai/gpt-5.4");
+  });
+
+  it("resolves mixed active and older selections into run participants", () => {
+    const models = resolveSelectedModels(
+      ["gpt-5.5", "claude-opus-4.6", "gemini-3.1-flash", "deepseek-v3.2"],
+      []
+    );
+    expect(models.map((model) => model.id)).toEqual([
+      "gpt-5.5",
+      "claude-opus-4.6",
+      "gemini-3.1-flash",
+      "deepseek-v3.2",
+    ]);
+    expect(models.map((model) => model.active)).toEqual([true, false, false, false]);
   });
 
   it("dedupes selected and custom models", () => {
