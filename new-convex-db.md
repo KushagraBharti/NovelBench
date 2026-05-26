@@ -1,3 +1,5 @@
+Migrate NovelBench's Convex database to the minimal durable schema below without breaking any existing product functionality. Preserve all user-visible benchmark data, access control, BYOK provider behavior, archive/results/leaderboard/export behavior, and active-run live behavior. Do not perform destructive deletes until compact replacements are backfilled, all reads/writes are switched, and the verification gate passes.
+
 Below is the clean plan: preserve product behavior, remove permanent debug/audit bloat, and rebuild the DB around minimal durable data.
 
 **Target Principle**
@@ -196,3 +198,5 @@ The big firehose becomes:
 - `runLiveEvents`, active only, deleted on terminal
 
 That preserves functionality and removes the storage explosion.
+
+Do not stop until EVERYTHING is implemented, tested, and perfectly completed. Ensure absolute perfection. Use all your tools to your advantage.
