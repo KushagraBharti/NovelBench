@@ -25,11 +25,7 @@ function toLeaderboardScopeKey(categoryId?: string, votePhase: LeaderboardVotePh
   return categoryId ? `category:${categoryId}:${votePhase}` : `global:${votePhase}`;
 }
 
-function toExportView(
-  artifact: Doc<"runArtifacts"> | null,
-  exportDoc: Doc<"exports">,
-  downloadUrl: string | null,
-) {
+function toExportView(exportDoc: Doc<"exports">, downloadUrl: string | null) {
   return {
     id: exportDoc._id,
     scopeType: exportDoc.scopeType ?? "run",
@@ -39,9 +35,8 @@ function toExportView(
     status: exportDoc.status,
     createdAt: exportDoc.createdAt,
     updatedAt: exportDoc.updatedAt,
-    artifactId: exportDoc.artifactId,
     downloadUrl,
-    artifactLabel: artifact?.label ?? exportDoc.label ?? null,
+    artifactLabel: exportDoc.label ?? null,
   };
 }
 
@@ -67,13 +62,8 @@ export const listByRun = query({
 
     return await Promise.all(
       exports.map(async (entry) => {
-        const artifact = entry.artifactId ? await ctx.db.get(entry.artifactId) : null;
-        const downloadUrl = artifact?.storageId
-          ? await ctx.storage.getUrl(artifact.storageId)
-          : entry.storageId
-            ? await ctx.storage.getUrl(entry.storageId)
-            : null;
-        return toExportView(artifact, entry, downloadUrl);
+        const downloadUrl = entry.storageId ? await ctx.storage.getUrl(entry.storageId) : null;
+        return toExportView(entry, downloadUrl);
       }),
     );
   },
@@ -96,13 +86,8 @@ export const listByProject = query({
       exports
         .filter((entry) => entry.scopeType === "project_summary")
         .map(async (entry) => {
-          const artifact = entry.artifactId ? await ctx.db.get(entry.artifactId) : null;
-          const downloadUrl = artifact?.storageId
-            ? await ctx.storage.getUrl(artifact.storageId)
-            : entry.storageId
-              ? await ctx.storage.getUrl(entry.storageId)
-              : null;
-          return toExportView(artifact, entry, downloadUrl);
+          const downloadUrl = entry.storageId ? await ctx.storage.getUrl(entry.storageId) : null;
+          return toExportView(entry, downloadUrl);
         }),
     );
   },
@@ -126,13 +111,8 @@ export const listLeaderboard = query({
 
     return await Promise.all(
       exports.map(async (entry) => {
-        const artifact = entry.artifactId ? await ctx.db.get(entry.artifactId) : null;
-        const downloadUrl = artifact?.storageId
-          ? await ctx.storage.getUrl(artifact.storageId)
-          : entry.storageId
-            ? await ctx.storage.getUrl(entry.storageId)
-            : null;
-        return toExportView(artifact, entry, downloadUrl);
+        const downloadUrl = entry.storageId ? await ctx.storage.getUrl(entry.storageId) : null;
+        return toExportView(entry, downloadUrl);
       }),
     );
   },
@@ -163,9 +143,8 @@ export const requestRunExport = mutation({
         ["queued", "running", "complete"].includes(entry.status),
     );
     if (reusable) {
-      const artifact = reusable.artifactId ? await ctx.db.get(reusable.artifactId) : null;
-      const downloadUrl = artifact?.storageId ? await ctx.storage.getUrl(artifact.storageId) : null;
-      return toExportView(artifact, reusable, downloadUrl);
+      const downloadUrl = reusable.storageId ? await ctx.storage.getUrl(reusable.storageId) : null;
+      return toExportView(reusable, downloadUrl);
     }
 
     const now = Date.now();
@@ -179,7 +158,6 @@ export const requestRunExport = mutation({
       categoryId: run.categoryId,
       format: args.format,
       status: "queued",
-      artifactId: undefined,
       createdAt: now,
       updatedAt: now,
     });
@@ -225,22 +203,8 @@ export const requestRunExport = mutation({
         exportId,
       },
     });
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: run.organizationId,
-      projectId: run.projectId,
-      action: "export.requested",
-      resourceType: "export",
-      resourceId: String(exportId),
-      metadata: {
-        format: args.format,
-        runId: run._id,
-      },
-      createdAt: now,
-    });
-
     const exportDoc = await ctx.db.get(exportId);
-    return toExportView(null, exportDoc!, null);
+    return toExportView(exportDoc!, null);
   },
 });
 
@@ -271,13 +235,8 @@ export const requestProjectSummaryExport = mutation({
         ["queued", "running", "complete"].includes(entry.status),
     );
     if (reusable) {
-      const artifact = reusable.artifactId ? await ctx.db.get(reusable.artifactId) : null;
-      const downloadUrl = artifact?.storageId
-        ? await ctx.storage.getUrl(artifact.storageId)
-        : reusable.storageId
-          ? await ctx.storage.getUrl(reusable.storageId)
-          : null;
-      return toExportView(artifact, reusable, downloadUrl);
+      const downloadUrl = reusable.storageId ? await ctx.storage.getUrl(reusable.storageId) : null;
+      return toExportView(reusable, downloadUrl);
     }
 
     const now = Date.now();
@@ -292,7 +251,6 @@ export const requestProjectSummaryExport = mutation({
       categoryId: undefined,
       format: args.format,
       status: "queued",
-      artifactId: undefined,
       createdAt: now,
       updatedAt: now,
     });
@@ -335,22 +293,8 @@ export const requestProjectSummaryExport = mutation({
         exportId,
       },
     });
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: project.organizationId,
-      projectId: project._id,
-      action: "export.project_summary.requested",
-      resourceType: "export",
-      resourceId: String(exportId),
-      metadata: {
-        format: args.format,
-        projectId: project._id,
-      },
-      createdAt: now,
-    });
-
     const exportDoc = await ctx.db.get(exportId);
-    return toExportView(null, exportDoc!, null);
+    return toExportView(exportDoc!, null);
   },
 });
 
@@ -383,13 +327,8 @@ export const requestLeaderboardExport = mutation({
         ["queued", "running", "complete"].includes(entry.status),
     );
     if (reusable) {
-      const artifact = reusable.artifactId ? await ctx.db.get(reusable.artifactId) : null;
-      const downloadUrl = artifact?.storageId
-        ? await ctx.storage.getUrl(artifact.storageId)
-        : reusable.storageId
-          ? await ctx.storage.getUrl(reusable.storageId)
-          : null;
-      return toExportView(artifact, reusable, downloadUrl);
+      const downloadUrl = reusable.storageId ? await ctx.storage.getUrl(reusable.storageId) : null;
+      return toExportView(reusable, downloadUrl);
     }
 
     const now = Date.now();
@@ -403,7 +342,6 @@ export const requestLeaderboardExport = mutation({
       categoryId: args.categoryId,
       format: args.format,
       status: "queued",
-      artifactId: undefined,
       createdAt: now,
       updatedAt: now,
     });
@@ -448,23 +386,8 @@ export const requestLeaderboardExport = mutation({
         exportId,
       },
     });
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: user.defaultOrgId,
-      projectId: undefined,
-      action: "export.leaderboard.requested",
-      resourceType: "export",
-      resourceId: String(exportId),
-      metadata: {
-        format: args.format,
-        categoryId: args.categoryId,
-        votePhase,
-      },
-      createdAt: now,
-    });
-
     const exportDoc = await ctx.db.get(exportId);
-    return toExportView(null, exportDoc!, null);
+    return toExportView(exportDoc!, null);
   },
 });
 
@@ -483,7 +406,6 @@ export const handleExportCompletionInternal = exportsWorkpool.defineOnComplete({
     const now = Date.now();
     if (args.result.kind === "success") {
       const result = args.result.returnValue as {
-        artifactId?: Id<"runArtifacts">;
         storageId?: Id<"_storage">;
         label: string;
         contentType: string;
@@ -491,7 +413,6 @@ export const handleExportCompletionInternal = exportsWorkpool.defineOnComplete({
       };
       await ctx.db.patch(exportDoc._id, {
         status: "complete",
-        artifactId: result.artifactId,
         storageId: result.storageId,
         label: result.label,
         contentType: result.contentType,
@@ -577,43 +498,11 @@ export const getExportBundleInternal = internalQuery({
           .withIndex("by_run", (q) => q.eq("runId", run._id))
           .collect(),
       ]);
-      const fallbackKinds = new Set<string>();
-      if (humanCritiques.length === 0) fallbackKinds.add("human_critique_submitted");
-      if (sources.length === 0) fallbackKinds.add("web_stage_trace");
-      if (failures.length === 0) {
-        fallbackKinds.add("model_failed");
-        fallbackKinds.add("run_failed");
-      }
-      if (controls.length === 0) {
-        for (const kind of [
-          "run_paused",
-          "run_resumed",
-          "run_canceled",
-          "run_restarted",
-          "run_retried",
-          "human_critique_proceeded",
-        ]) {
-          fallbackKinds.add(kind);
-        }
-      }
-      if (reasoningSummaries.length === 0) fallbackKinds.add("reasoning_detail");
-      const events = (
-        await Promise.all(
-          Array.from(fallbackKinds).map((kind) =>
-            ctx.db
-              .query("runEvents")
-              .withIndex("by_run_kind_and_created_at", (q) => q.eq("runId", run._id).eq("kind", kind))
-              .collect(),
-          ),
-        )
-      ).flat();
-
       return {
         scopeType: "run",
         exportDoc,
         run,
         participants,
-        events,
         compact: {
           humanCritiques,
           sources,

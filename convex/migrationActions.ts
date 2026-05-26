@@ -18,19 +18,13 @@ const importLegacyRunHandler = async (
     promptCaptureJsonl?: string;
   },
 ): Promise<ImportLegacyRunResult> => {
-  const promptCaptureStorageId = args.promptCaptureJsonl
-    ? await ctx.storage.store(
-        new Blob([args.promptCaptureJsonl], { type: "application/x-ndjson" }),
-      )
-    : undefined;
-
   return await ctx.runMutation(internal.migrations.importLegacyRunInternal, {
     ownerUserId: args.ownerUserId,
     organizationId: args.organizationId,
     projectId: args.projectId,
     legacyRunId: args.legacyRunId,
     run: args.run,
-    promptCaptureStorageId,
+    promptCaptureStorageId: undefined,
   });
 };
 

@@ -1,6 +1,4 @@
 "use node";
-
-import { Buffer } from "node:buffer";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalAction, type ActionCtx } from "./_generated/server";
@@ -151,7 +149,6 @@ async function finalizeSuccess(
     runId: string;
     participantId: string;
     stage: "generate" | "critique" | "revise" | "vote";
-    raw: string;
     parsedResult: unknown;
     startedAt: number;
     inputTokens: number;
@@ -161,9 +158,6 @@ async function finalizeSuccess(
   },
 ) {
   const completedAt = Date.now();
-  const storageId = await ctx.storage.store(
-    new Blob([params.raw], { type: "text/plain" }),
-  );
   await ctx.runMutation(internal.runs.recordParticipantStageSuccessInternal, {
     runId: params.runId as never,
     participantId: params.participantId as never,
@@ -174,8 +168,6 @@ async function finalizeSuccess(
     outputTokens: params.outputTokens,
     estimatedCostUsd: params.estimatedCostUsd,
     parsedResult: params.parsedResult,
-    rawStorageId: storageId,
-    rawSizeBytes: Buffer.byteLength(params.raw, "utf8"),
   });
 
   if (params.webTrace) {
@@ -349,40 +341,6 @@ function toolDowngradeReason(args: {
   return undefined;
 }
 
-async function storeSearchPayloadArtifact(
-  ctx: ActionCtx,
-  params: {
-    runId: string;
-    modelId: string;
-    stage: WebEnabledStage;
-    toolCallId: string;
-    query: string;
-    turn: number;
-    payload: unknown;
-  },
-) {
-  const content = JSON.stringify(params.payload, null, 2);
-  const storageId = await ctx.storage.store(
-    new Blob([content], { type: "application/json" }),
-  );
-  await ctx.runMutation(internal.runs.insertArtifactInternal, {
-    runId: params.runId as never,
-    participantModelId: params.modelId,
-    stage: params.stage,
-    artifactType: "exa.search_payload",
-    label: `${params.modelId} ${params.stage} search payload`,
-    storageId,
-    contentType: "application/json",
-    sizeBytes: Buffer.byteLength(content, "utf8"),
-    metadata: {
-      toolCallId: params.toolCallId,
-      query: params.query,
-      turn: params.turn,
-    },
-    createdAt: Date.now(),
-  });
-}
-
 async function executeSearchToolCall(
   ctx: ActionCtx,
   trace: StageWebTrace,
@@ -456,16 +414,6 @@ async function executeSearchToolCall(
       }),
       params.seenUrls,
     );
-
-    await storeSearchPayloadArtifact(ctx, {
-      runId: params.runId,
-      modelId: params.modelId,
-      stage: params.stage,
-      toolCallId: params.toolCall.id,
-      query: payload.query,
-      turn: params.turn,
-      payload,
-    });
 
     const completedAt = new Date().toISOString();
     const latencyMs = Date.parse(completedAt) - Date.parse(startedAt);
@@ -801,7 +749,6 @@ export const generateParticipant = internalAction({
         runId: args.runId,
         participantId: args.participantId,
         stage: "generate",
-        raw: result.raw,
         parsedResult,
         startedAt,
         inputTokens: result.usage.inputTokens,
@@ -895,7 +842,6 @@ export const critiqueParticipant = internalAction({
         runId: args.runId,
         participantId: args.participantId,
         stage: "critique",
-        raw,
         parsedResult: {
           fromModelId: participant.modelId,
           critiques: parsed.critiques,
@@ -1036,7 +982,6 @@ export const reviseParticipant = internalAction({
         runId: args.runId,
         participantId: args.participantId,
         stage: "revise",
-        raw: result.raw,
         parsedResult,
         startedAt,
         inputTokens: result.usage.inputTokens,
@@ -1129,7 +1074,6 @@ export const voteParticipant = internalAction({
         runId: args.runId,
         participantId: args.participantId,
         stage: "vote",
-        raw,
         parsedResult: {
           judgeModelId: participant.modelId,
           rankings,

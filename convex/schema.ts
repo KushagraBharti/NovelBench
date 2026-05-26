@@ -309,20 +309,6 @@ export default defineSchema({
     .index("by_run", ["runId"])
     .index("by_project_and_created_at", ["projectId", "createdAt"]),
 
-  auditLogs: defineTable({
-    actorUserId: v.id("users"),
-    organizationId: v.optional(v.id("organizations")),
-    projectId: v.optional(v.id("projects")),
-    action: v.string(),
-    resourceType: v.string(),
-    resourceId: v.string(),
-    metadata: v.optional(v.any()),
-    createdAt: v.number(),
-  })
-    .index("by_actor_and_created_at", ["actorUserId", "createdAt"])
-    .index("by_resource", ["resourceType", "resourceId"])
-    .index("by_created_at", ["createdAt"]),
-
   runs: defineTable({
     legacyRunId: v.optional(v.string()),
     ownerUserId: v.id("users"),
@@ -389,13 +375,9 @@ export default defineSchema({
     outputTokens: v.optional(v.number()),
     estimatedCostUsd: v.number(),
     generatedIdea: v.optional(v.any()),
-    generatedRawArtifactId: v.optional(v.id("runArtifacts")),
     critiqueResult: v.optional(v.any()),
-    critiqueRawArtifactId: v.optional(v.id("runArtifacts")),
     revisedIdea: v.optional(v.any()),
-    revisedRawArtifactId: v.optional(v.id("runArtifacts")),
     finalRanking: v.optional(v.any()),
-    finalRawArtifactId: v.optional(v.id("runArtifacts")),
   })
     .index("by_run", ["runId"])
     .index("by_run_and_model_id", ["runId", "modelId"]),
@@ -411,20 +393,6 @@ export default defineSchema({
     completedAt: v.optional(v.number()),
   })
     .index("by_run_and_stage", ["runId", "stage"]),
-
-  runEvents: defineTable({
-    runId: v.id("runs"),
-    stage: checkpointStage,
-    kind: v.string(),
-    participantModelId: v.optional(v.string()),
-    message: v.string(),
-    payload: v.optional(v.any()),
-    createdAt: v.number(),
-  })
-    .index("by_run_and_created_at", ["runId", "createdAt"])
-    .index("by_run_stage_and_created_at", ["runId", "stage", "createdAt"])
-    .index("by_run_kind_and_created_at", ["runId", "kind", "createdAt"])
-    .index("by_run_stage_kind_and_created_at", ["runId", "stage", "kind", "createdAt"]),
 
   runHumanCritiques: defineTable({
     runId: v.id("runs"),
@@ -519,22 +487,6 @@ export default defineSchema({
     .index("by_run_stage_and_participant_model_id", ["runId", "stage", "participantModelId"])
     .index("by_run_participant_model_id_and_detail_id", ["runId", "participantModelId", "detailId"])
     .index("by_source_event_id", ["sourceEventId"]),
-
-  runArtifacts: defineTable({
-    runId: v.id("runs"),
-    participantModelId: v.optional(v.string()),
-    stage: checkpointStage,
-    artifactType: v.string(),
-    label: v.string(),
-    storageId: v.optional(v.id("_storage")),
-    contentType: v.string(),
-    sizeBytes: v.optional(v.number()),
-    metadata: v.optional(v.any()),
-    createdAt: v.number(),
-  })
-    .index("by_run", ["runId"])
-    .index("by_run_and_stage", ["runId", "stage"])
-    .index("by_artifact_type_and_created_at", ["artifactType", "createdAt"]),
 
   jobs: defineTable({
     organizationId: v.id("organizations"),
@@ -649,7 +601,6 @@ export default defineSchema({
     categoryId: v.optional(v.string()),
     format: v.union(v.literal("json"), v.literal("csv")),
     status: v.string(),
-    artifactId: v.optional(v.id("runArtifacts")),
     storageId: v.optional(v.id("_storage")),
     label: v.optional(v.string()),
     contentType: v.optional(v.string()),

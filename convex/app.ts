@@ -70,16 +70,6 @@ export const bootstrapViewer = mutation({
       updatedByUserId: user._id,
       updatedAt: now,
     });
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: orgId,
-      projectId,
-      action: "viewer.bootstrapped",
-      resourceType: "user",
-      resourceId: String(user._id),
-      createdAt: now,
-    });
-
     return {
       userId: user._id,
       defaultOrgId: orgId,

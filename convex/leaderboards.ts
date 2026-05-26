@@ -100,20 +100,12 @@ export const getRunRecordsPageInternal = internalQuery({
         continue;
       }
 
-      const [participants, humanCritiques, events] = await Promise.all([
+      const [participants, humanCritiques] = await Promise.all([
         ctx.db.query("runParticipants").withIndex("by_run", (q) => q.eq("runId", run._id)).collect(),
         run.humanCritiqueCount == null
           ? ctx.db
               .query("runHumanCritiques")
               .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
-              .collect()
-          : Promise.resolve([]),
-        run.humanCritiqueCount == null
-          ? ctx.db
-              .query("runEvents")
-              .withIndex("by_run_kind_and_created_at", (q) =>
-                q.eq("runId", run._id).eq("kind", "human_critique_submitted"),
-              )
               .collect()
           : Promise.resolve([]),
       ]);
@@ -137,16 +129,7 @@ export const getRunRecordsPageInternal = internalQuery({
           .filter((participant) => participant.finalRanking)
           .sort((a, b) => a.order - b.order)
           .map((participant) => participant.finalRanking as LeaderboardRunRecord["finalRankings"][number]),
-        humanCritiqueCount:
-          run.humanCritiqueCount ??
-          (humanCritiques.length > 0
-            ? humanCritiques.length
-            : events.reduce(
-                (sum, event) =>
-                  sum +
-                  (((event.payload as { critiques?: unknown[] } | undefined)?.critiques?.length) ?? 0),
-                0,
-              )),
+        humanCritiqueCount: run.humanCritiqueCount ?? humanCritiques.length,
         completedModelCount: participants.filter((participant) => participant.finalRanking).length,
       });
     }

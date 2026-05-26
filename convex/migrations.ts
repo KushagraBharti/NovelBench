@@ -234,7 +234,7 @@ export const importLegacyRunInternal = internalMutation({
       error: run.error,
       finalWinnerModelId: finalWinner.modelId,
       finalWinnerName: finalWinner.modelName,
-      promptCaptureCount: args.promptCaptureStorageId ? 1 : 0,
+      promptCaptureCount: 0,
       exportCount: 0,
       reservedBudgetUsd: 0,
       settledCostUsd: 0,
@@ -267,13 +267,9 @@ export const importLegacyRunInternal = internalMutation({
         outputTokens: undefined,
         estimatedCostUsd: 0,
         generatedIdea: run.ideas.find((entry) => entry.modelId === model.id)?.content,
-        generatedRawArtifactId: undefined,
         critiqueResult: critique,
-        critiqueRawArtifactId: undefined,
         revisedIdea: run.revisedIdeas.find((entry) => entry.modelId === model.id)?.content,
-        revisedRawArtifactId: undefined,
         finalRanking,
-        finalRawArtifactId: undefined,
       });
     }
 
@@ -341,20 +337,7 @@ export const importLegacyRunInternal = internalMutation({
     }
 
     if (args.promptCaptureStorageId) {
-      await ctx.db.insert("runArtifacts", {
-        runId,
-        participantModelId: undefined,
-        stage: "complete",
-        artifactType: "prompt_capture.jsonl",
-        label: "Legacy prompt captures",
-        storageId: args.promptCaptureStorageId,
-        contentType: "application/x-ndjson",
-        sizeBytes: undefined,
-        metadata: {
-          legacyRunId: args.legacyRunId,
-        },
-        createdAt: updatedAt,
-      });
+      await ctx.storage.delete(args.promptCaptureStorageId);
     }
 
     const dayKey = dayKeyFromTimestamp(createdAt);
@@ -400,19 +383,6 @@ export const importLegacyRunInternal = internalMutation({
         updatedAt,
       });
     }
-
-    await ctx.db.insert("auditLogs", {
-      actorUserId: args.ownerUserId,
-      organizationId: args.organizationId,
-      projectId: args.projectId,
-      action: "migration.legacy_run_imported",
-      resourceType: "run",
-      resourceId: String(runId),
-      metadata: {
-        legacyRunId: args.legacyRunId,
-      },
-      createdAt: updatedAt,
-    });
 
     return runId;
   },

@@ -146,15 +146,6 @@ const LIVE_ACTIVITY_EVENT_KINDS = [
   "reasoning_detail",
 ] as const;
 
-const CONTROL_EVENT_FALLBACK_KINDS = [
-  "run_paused",
-  "run_resumed",
-  "run_canceled",
-  "run_restarted",
-  "run_retried",
-  "human_critique_proceeded",
-] as const;
-
 const MANUAL_ARCHIVE_SEARCH_CURSOR_PREFIX = "archive-search-offset:";
 
 type ControlActionType = "pause" | "resume" | "cancel" | "restart" | "retry" | "proceed";
@@ -528,9 +519,7 @@ async function cancelRunWithReason(
     reason: string;
     now: number;
     eventKind: string;
-    auditAction: string;
     actorUserId: Id<"users">;
-    metadata?: Record<string, unknown>;
   },
 ) {
   const participants = await ctx.db
@@ -559,6 +548,7 @@ async function cancelRunWithReason(
     status: "canceled",
     currentStep: "Run canceled",
     error: undefined,
+    workflowId: undefined,
     updatedAt: args.now,
     consumesConcurrencySlot: false,
     lastProgressAt: args.now,
@@ -574,6 +564,7 @@ async function cancelRunWithReason(
       status: "canceled",
       currentStep: "Run canceled",
       error: undefined,
+      workflowId: undefined,
       updatedAt: args.now,
       consumesConcurrencySlot: false,
       lastProgressAt: args.now,
@@ -604,19 +595,6 @@ async function cancelRunWithReason(
   if (args.run.workflowId) {
     await workflow.cancel(ctx, args.run.workflowId as never);
   }
-  await ctx.db.insert("auditLogs", {
-    actorUserId: args.actorUserId,
-    organizationId: args.run.organizationId,
-    projectId: args.run.projectId,
-    action: args.auditAction,
-    resourceType: "run",
-    resourceId: String(args.run._id),
-    metadata: {
-      stage: args.run.checkpointStage,
-      ...args.metadata,
-    },
-    createdAt: args.now,
-  });
 }
 
 async function loadAccessibleRun(
@@ -673,45 +651,6 @@ async function loadCompactRunDocs(
   };
 }
 
-async function loadDurableEventFallbacks(
-  ctx: QueryCtx | MutationCtx,
-  runId: Id<"runs">,
-  compact: CompactRunDocs,
-) {
-  const kinds = new Set<string>();
-  if (compact.humanCritiques.length === 0) {
-    kinds.add("human_critique_submitted");
-  }
-  if (compact.sources.length === 0) {
-    kinds.add("web_stage_trace");
-  }
-  if (compact.failures.length === 0) {
-    kinds.add("model_failed");
-    kinds.add("run_failed");
-  }
-  if (compact.controls.length === 0) {
-    for (const kind of CONTROL_EVENT_FALLBACK_KINDS) {
-      kinds.add(kind);
-    }
-  }
-  if (compact.reasoningSummaries.length === 0) {
-    kinds.add("reasoning_detail");
-  }
-
-  const events = (
-    await Promise.all(
-      Array.from(kinds).map((kind) =>
-        ctx.db
-          .query("runEvents")
-          .withIndex("by_run_kind_and_created_at", (q) => q.eq("runId", runId).eq("kind", kind))
-          .collect(),
-      ),
-    )
-  ).flat();
-
-  return events.sort((a, b) => a.createdAt - b.createdAt);
-}
-
 async function hydrateRun(
   ctx: QueryCtx | MutationCtx,
   run: Doc<"runs">,
@@ -720,8 +659,7 @@ async function hydrateRun(
     ctx.db.query("runParticipants").withIndex("by_run", (q) => q.eq("runId", run._id)).collect(),
     loadCompactRunDocs(ctx, run._id),
   ]);
-  const events = await loadDurableEventFallbacks(ctx, run._id, compact);
-  return runDocsToBenchmarkRun({ run, participants, events, compact });
+  return runDocsToBenchmarkRun({ run, participants, compact });
 }
 
 async function hydrateRunLite(
@@ -1640,11 +1578,11 @@ export const listEvents = query({
     if (!accessible) {
       throw new ConvexError("Run not found");
     }
-    return await ctx.db
-      .query("runEvents")
-      .withIndex("by_run_and_created_at", (q) => q.eq("runId", args.runId))
-      .order("desc")
-      .paginate(args.paginationOpts);
+    return {
+      page: [],
+      isDone: true,
+      continueCursor: args.paginationOpts.cursor ?? "",
+    };
   },
 });
 
@@ -1725,21 +1663,8 @@ export const liveActivitySince = query({
         ),
       )
     ).flat();
-    const legacyEvents = (
-      await Promise.all(
-        LIVE_ACTIVITY_EVENT_KINDS.map((kind) =>
-          ctx.db
-            .query("runEvents")
-            .withIndex("by_run_kind_and_created_at", (q) =>
-              q.eq("runId", args.runId).eq("kind", kind).gte("createdAt", sinceCreatedAt),
-            )
-            .collect(),
-        ),
-      )
-    ).flat();
-
     const filteredEvents = filterLiveActivityEventsSince(
-      [...legacyEvents, ...liveEvents],
+      liveEvents,
       sinceCreatedAt > 0 || args.sinceEventId
         ? {
             createdAt: sinceCreatedAt,
@@ -1764,20 +1689,10 @@ export const listArtifacts = query({
       throw new ConvexError("Run not found");
     }
 
-    const page = await ctx.db
-      .query("runArtifacts")
-      .withIndex("by_run", (q) => q.eq("runId", args.runId))
-      .order("desc")
-      .paginate(args.paginationOpts);
-
     return {
-      ...page,
-      page: await Promise.all(
-        page.page.map(async (artifact: Doc<"runArtifacts">) => ({
-          ...artifact,
-          url: artifact.storageId ? await ctx.storage.getUrl(artifact.storageId) : null,
-        })),
-      ),
+      page: [],
+      isDone: true,
+      continueCursor: args.paginationOpts.cursor ?? "",
     };
   },
 });
@@ -2365,20 +2280,6 @@ export const create = mutation({
       },
     });
 
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: project.organizationId,
-      projectId,
-      action: "run.created",
-      resourceType: "run",
-      resourceId: String(runId),
-      metadata: {
-        participantCount: selectedModels.length,
-        visibility: args.visibility ?? "public_full",
-      },
-      createdAt: now,
-    });
-
     const workflowId = await workflow.start(
       ctx,
       internal.benchmarkWorkflow.runBenchmarkWorkflow,
@@ -2460,16 +2361,6 @@ export const pause = mutation({
       reason: args.reason ?? "Paused by user",
       createdAt: now,
     });
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: run.organizationId,
-      projectId: run.projectId,
-      action: "run.paused",
-      resourceType: "run",
-      resourceId: String(run._id),
-      metadata: { stage: run.checkpointStage },
-      createdAt: now,
-    });
     await syncRunSearchDocStatus(ctx, run._id, "paused");
     await completeBenchmarkJobAttemptWithStatus(ctx, {
       runId: run._id,
@@ -2534,16 +2425,6 @@ export const resume = mutation({
         name: RUN_RESUME_EVENT,
       });
     }
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: run.organizationId,
-      projectId: run.projectId,
-      action: "run.resumed",
-      resourceType: "run",
-      resourceId: String(run._id),
-      metadata: { stage: run.checkpointStage },
-      createdAt: now,
-    });
     await syncRunSearchDocStatus(ctx, run._id, resumedStatus);
     if (resumedStatus === "awaiting_human_critique") {
       await completeBenchmarkJobAttemptWithStatus(ctx, {
@@ -2611,16 +2492,6 @@ export const proceed = mutation({
         name: HUMAN_CRITIQUE_EVENT,
       });
     }
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: run.organizationId,
-      projectId: run.projectId,
-      action: "run.proceeded",
-      resourceType: "run",
-      resourceId: String(run._id),
-      metadata: { stage: "human_critique" },
-      createdAt: now,
-    });
     await syncRunSearchDocStatus(ctx, run._id, "queued");
     await startBenchmarkExecutionAttempt(ctx, {
       runId: run._id,
@@ -2662,7 +2533,6 @@ export const cancel = mutation({
       reason: args.reason ?? "Canceled by user",
       now,
       eventKind: "run_canceled",
-      auditAction: "run.canceled",
       actorUserId: user._id,
     });
 
@@ -2683,7 +2553,7 @@ export const remove = mutation({
     if (!run) {
       throw new ConvexError("Run not found");
     }
-    const { user } = await requireProjectAccess(ctx, run.projectId, "editor");
+    await requireProjectAccess(ctx, run.projectId, "editor");
 
     if (!(TERMINAL_RUN_STATUSES as readonly string[]).includes(run.status)) {
       throw new ConvexError("Only terminal runs can be deleted");
@@ -2717,7 +2587,7 @@ export const submitHumanCritiques = mutation({
     if (args.critiques.length === 0) {
       throw new ConvexError("At least one human critique is required");
     }
-    const { user } = await requireProjectAccess(ctx, run.projectId, "editor");
+    await requireProjectAccess(ctx, run.projectId, "editor");
     const now = Date.now();
     const critiques: HumanCritiqueEntry[] = args.critiques.map((critique, index) => ({
       ...critique,
@@ -2753,17 +2623,6 @@ export const submitHumanCritiques = mutation({
       staleDeadlineAt: lifecycleState.staleDeadlineAt,
       staleCheckToken: lifecycleState.staleCheckToken,
     });
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: run.organizationId,
-      projectId: run.projectId,
-      action: "run.human_critiques_submitted",
-      resourceType: "run",
-      resourceId: String(run._id),
-      metadata: { count: critiques.length },
-      createdAt: now,
-    });
-
     const nextRun = await ctx.db.get(run._id);
     return await hydrateRun(ctx, nextRun!);
   },
@@ -2803,12 +2662,7 @@ export const handleScheduledStaleRunCheckInternal = internalMutation({
           : "Run auto-canceled after 24 hours without manual follow-up.",
       now,
       eventKind: "run_auto_canceled_stale",
-      auditAction: "run.auto_canceled_stale",
       actorUserId: run.ownerUserId,
-      metadata: {
-        timeoutClass,
-        staleDeadlineAt,
-      },
     });
 
     return null;
@@ -3008,33 +2862,6 @@ export const removeBatchInternal = internalMutation({
       return null;
     }
 
-    const artifacts = await ctx.db
-      .query("runArtifacts")
-      .withIndex("by_run", (q) => q.eq("runId", run._id))
-      .take(DELETE_BATCH_SIZE);
-    if (artifacts.length > 0) {
-      for (const artifact of artifacts) {
-        if (artifact.storageId) {
-          await ctx.storage.delete(artifact.storageId);
-        }
-        await ctx.db.delete(artifact._id);
-      }
-      await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
-      return null;
-    }
-
-    const events = await ctx.db
-      .query("runEvents")
-      .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
-      .take(DELETE_BATCH_SIZE);
-    if (events.length > 0) {
-      for (const event of events) {
-        await ctx.db.delete(event._id);
-      }
-      await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
-      return null;
-    }
-
     const participants = await ctx.db
       .query("runParticipants")
       .withIndex("by_run", (q) => q.eq("runId", run._id))
@@ -3053,19 +2880,6 @@ export const removeBatchInternal = internalMutation({
       .take(1);
     if (exportDoc.length > 0) {
       const entry = exportDoc[0];
-      const exportLogs = await ctx.db
-        .query("auditLogs")
-        .withIndex("by_resource", (q) =>
-          q.eq("resourceType", "export").eq("resourceId", String(entry._id)),
-        )
-        .take(DELETE_BATCH_SIZE);
-      if (exportLogs.length > 0) {
-        for (const log of exportLogs) {
-          await ctx.db.delete(log._id);
-        }
-        await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
-        return null;
-      }
       if (entry.storageId) {
         await ctx.storage.delete(entry.storageId);
       }
@@ -3092,18 +2906,6 @@ export const removeBatchInternal = internalMutation({
         return null;
       }
       await ctx.db.delete(job._id);
-      await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
-      return null;
-    }
-
-    const runLogs = await ctx.db
-      .query("auditLogs")
-      .withIndex("by_resource", (q) => q.eq("resourceType", "run").eq("resourceId", String(run._id)))
-      .take(DELETE_BATCH_SIZE);
-    if (runLogs.length > 0) {
-      for (const log of runLogs) {
-        await ctx.db.delete(log._id);
-      }
       await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
       return null;
     }
@@ -3171,30 +2973,6 @@ export const getReviseBundleInternal = internalQuery({
         )
         .collect(),
     ]);
-    const [legacyHumanCritiqueEvents, legacyGenerateTraceEvents] = await Promise.all([
-      humanCritiques.length > 0
-        ? Promise.resolve([])
-        : ctx.db
-            .query("runEvents")
-            .withIndex("by_run_stage_kind_and_created_at", (q) =>
-              q
-                .eq("runId", execution.run._id)
-                .eq("stage", "human_critique")
-                .eq("kind", "human_critique_submitted"),
-            )
-            .collect(),
-      sourceTraces.length > 0
-        ? Promise.resolve([])
-        : ctx.db
-            .query("runEvents")
-            .withIndex("by_run_stage_kind_and_created_at", (q) =>
-              q
-                .eq("runId", execution.run._id)
-                .eq("stage", "generate")
-                .eq("kind", "web_stage_trace"),
-            )
-            .collect(),
-    ]);
     const humanCritiqueEvents =
       humanCritiques.length > 0
         ? [
@@ -3215,20 +2993,17 @@ export const getReviseBundleInternal = internalQuery({
               },
             },
           ]
-        : legacyHumanCritiqueEvents;
-    const generateTraceEvents =
-      sourceTraces.length > 0
-        ? sourceTraces.map((trace) => ({
-            kind: "web_stage_trace",
-            payload: {
-              stage: trace.stage,
-              modelId: trace.participantModelId,
-              toolCalls: trace.toolCalls,
-              retrievedSources: trace.retrievedSources,
-              usage: trace.usage,
-            } satisfies StageWebTrace,
-          }))
-        : legacyGenerateTraceEvents;
+        : [];
+    const generateTraceEvents = sourceTraces.map((trace) => ({
+      kind: "web_stage_trace",
+      payload: {
+        stage: trace.stage,
+        modelId: trace.participantModelId,
+        toolCalls: trace.toolCalls,
+        retrievedSources: trace.retrievedSources,
+        usage: trace.usage,
+      } satisfies StageWebTrace,
+    }));
 
     return {
       run: execution.run,
@@ -3303,25 +3078,6 @@ export const getWorkflowBundleInternal = internalQuery({
         finalRanking: participant.finalRanking,
       })),
     };
-  },
-});
-
-export const insertArtifactInternal = internalMutation({
-  args: {
-    runId: v.id("runs"),
-    participantModelId: v.optional(v.string()),
-    stage: checkpointStageValidator,
-    artifactType: v.string(),
-    label: v.string(),
-    storageId: v.id("_storage"),
-    contentType: v.string(),
-    sizeBytes: v.optional(v.number()),
-    metadata: v.optional(v.any()),
-    createdAt: v.number(),
-  },
-  returns: v.id("runArtifacts"),
-  handler: async (ctx, args) => {
-    return await ctx.db.insert("runArtifacts", args);
   },
 });
 
@@ -3642,8 +3398,6 @@ export const recordParticipantStageSuccessInternal = internalMutation({
     outputTokens: v.optional(v.number()),
     estimatedCostUsd: v.number(),
     parsedResult: v.any(),
-    rawStorageId: v.optional(v.id("_storage")),
-    rawSizeBytes: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -3653,44 +3407,21 @@ export const recordParticipantStageSuccessInternal = internalMutation({
       throw new ConvexError("Participant not found");
     }
 
-    let artifactId: Id<"runArtifacts"> | undefined;
-    if (args.rawStorageId) {
-      artifactId = await ctx.db.insert("runArtifacts", {
-        runId: args.runId,
-        participantModelId: participant.modelId,
-        stage: args.stage,
-        artifactType: "openrouter.raw",
-        label: `${participant.modelName} ${args.stage} raw output`,
-        storageId: args.rawStorageId,
-        contentType: "text/plain",
-        sizeBytes: args.rawSizeBytes,
-        metadata: {
-          participantId: args.participantId,
-          stage: args.stage,
-        },
-        createdAt: args.completedAt,
-      });
-    }
-
     const stagePatch =
       args.stage === "generate"
         ? {
             generatedIdea: args.parsedResult,
-            generatedRawArtifactId: artifactId,
           }
         : args.stage === "critique"
           ? {
               critiqueResult: args.parsedResult,
-              critiqueRawArtifactId: artifactId,
             }
           : args.stage === "revise"
             ? {
                 revisedIdea: args.parsedResult,
-                revisedRawArtifactId: artifactId,
               }
             : {
                 finalRanking: args.parsedResult,
-                finalRawArtifactId: artifactId,
               };
 
     await ctx.db.patch(args.participantId, {
@@ -3843,12 +3574,14 @@ export const finalizeRunOutcomeInternal = internalMutation({
       throw new ConvexError("Run not found");
     }
 
+    const terminalStatus = isTerminalRunStatus(args.status);
     if (
       run.status !== args.status ||
       run.currentStep !== args.currentStep ||
       run.finalWinnerModelId !== args.finalWinnerModelId ||
       run.finalWinnerName !== args.finalWinnerName ||
-      run.error !== args.error
+      run.error !== args.error ||
+      (terminalStatus && run.workflowId !== undefined)
     ) {
       await ctx.db.patch(args.runId, {
         status: args.status,
@@ -3856,6 +3589,7 @@ export const finalizeRunOutcomeInternal = internalMutation({
         finalWinnerModelId: args.finalWinnerModelId,
         finalWinnerName: args.finalWinnerName,
         error: args.error,
+        workflowId: terminalStatus ? undefined : run.workflowId,
         updatedAt: now,
         consumesConcurrencySlot: false,
         lastProgressAt: now,
@@ -3865,6 +3599,7 @@ export const finalizeRunOutcomeInternal = internalMutation({
     } else {
       await ctx.db.patch(args.runId, {
         consumesConcurrencySlot: false,
+        workflowId: terminalStatus ? undefined : run.workflowId,
         lastProgressAt: now,
         staleDeadlineAt: undefined,
         staleCheckToken: undefined,
@@ -3882,6 +3617,7 @@ export const finalizeRunOutcomeInternal = internalMutation({
         finalWinnerModelId: args.finalWinnerModelId,
         finalWinnerName: args.finalWinnerName,
         error: args.error,
+        workflowId: terminalStatus ? undefined : run.workflowId,
         updatedAt: now,
         consumesConcurrencySlot: false,
         lastProgressAt: now,
@@ -3898,7 +3634,7 @@ export const finalizeRunOutcomeInternal = internalMutation({
       completedAt: now,
       error: args.error,
     });
-    if (isTerminalRunStatus(args.status)) {
+    if (terminalStatus) {
       await ctx.scheduler.runAfter(0, internal.runs.pruneRunLiveEventsInternal, {
         runId: args.runId,
       });
@@ -3935,20 +3671,6 @@ export const recordPostCompletionIssueInternal = internalMutation({
       return null;
     }
 
-    const now = Date.now();
-    await ctx.db.insert("auditLogs", {
-      actorUserId: run.ownerUserId,
-      organizationId: run.organizationId,
-      projectId: run.projectId,
-      action: "run.post_completion_issue_recorded",
-      resourceType: "run",
-      resourceId: String(args.runId),
-      metadata: {
-        kind: args.kind,
-        message: args.message,
-      },
-      createdAt: now,
-    });
     return null;
   },
 });
@@ -4177,21 +3899,7 @@ export const getHistoricalRepairPageInternal = internalQuery({
           .query("runHumanCritiques")
           .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
           .collect();
-        if (humanCritiques.length > 0) {
-          humanCritiqueCount = humanCritiques.length;
-        } else {
-          const critiqueEvents = await ctx.db
-            .query("runEvents")
-            .withIndex("by_run_kind_and_created_at", (q) =>
-              q.eq("runId", run._id).eq("kind", "human_critique_submitted"),
-            )
-            .collect();
-          humanCritiqueCount = critiqueEvents.reduce(
-            (sum, event) =>
-              sum + (((event.payload as { critiques?: unknown[] } | undefined)?.critiques?.length) ?? 0),
-            0,
-          );
-        }
+        humanCritiqueCount = humanCritiques.length;
       }
 
       const validFinalOutcome = hasValidFinalOutcome(run, participants);

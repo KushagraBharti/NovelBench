@@ -95,22 +95,6 @@ export const updateProviderPolicy = mutation({
       await ctx.db.insert("providerPolicies", next);
     }
 
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: args.organizationId,
-      projectId: args.projectId,
-      action: "provider_policy.updated",
-      resourceType: "providerPolicy",
-      resourceId: String(args.projectId ?? args.organizationId),
-      metadata: {
-        maxModelsPerRun: args.maxModelsPerRun,
-        maxConcurrentRuns: Math.max(args.maxConcurrentRuns, MIN_CONCURRENT_RUNS),
-        researchEnabled: args.researchEnabled,
-        hardBlockOnBudget: args.hardBlockOnBudget,
-      },
-      createdAt: Date.now(),
-    });
-
     return null;
   },
 });
@@ -233,8 +217,7 @@ export const logAuditInternal = internalMutation({
     createdAt: v.number(),
   },
   returns: v.null(),
-  handler: async (ctx, args) => {
-    await ctx.db.insert("auditLogs", args);
+  handler: async () => {
     return null;
   },
 });

@@ -17,7 +17,6 @@ import {
 import type { LeaderboardData } from "@/types";
 
 type GenerateExportResult = {
-  artifactId?: Id<"runArtifacts">;
   storageId?: Id<"_storage">;
   label: string;
   contentType: string;
@@ -43,7 +42,6 @@ const generateExportFileHandler = async (
     const run = runDocsToBenchmarkRun({
       run: bundle.run,
       participants: bundle.participants,
-      events: bundle.events,
       compact: bundle.compact,
     });
 
@@ -59,28 +57,9 @@ const generateExportFileHandler = async (
     const contentType = exportDoc.format === "json" ? "application/json" : "text/csv";
     const { blob, sizeBytes } = toStoragePayload(content, contentType);
     const storageId = await ctx.storage.store(blob);
-    const artifactId: Id<"runArtifacts"> = await ctx.runMutation(
-      internal.runs.insertArtifactInternal,
-      {
-        runId: exportDoc.runId,
-        participantModelId: undefined,
-        stage: "complete",
-        artifactType: `export.${exportDoc.format}`,
-        label: `Run export (${exportDoc.format.toUpperCase()})`,
-        storageId,
-        contentType,
-        sizeBytes,
-        metadata: {
-          exportId: exportDoc._id,
-          format: exportDoc.format,
-          scopeType: "run",
-        },
-        createdAt: Date.now(),
-      },
-    );
 
     return {
-      artifactId,
+      storageId,
       label: `Run export (${exportDoc.format.toUpperCase()})`,
       contentType,
       sizeBytes,
@@ -180,7 +159,6 @@ export const generateExportFile: ReturnType<typeof internalAction> = internalAct
     exportId: v.id("exports"),
   },
   returns: v.object({
-    artifactId: v.optional(v.id("runArtifacts")),
     storageId: v.optional(v.id("_storage")),
     label: v.string(),
     contentType: v.string(),

@@ -150,7 +150,7 @@ export const addMemberByEmail = mutation({
     if (!project) {
       throw new ConvexError("Project not found");
     }
-    const { user } = await requireOrganizationAdminAccess(ctx, project.organizationId);
+    await requireOrganizationAdminAccess(ctx, project.organizationId);
 
     const memberUser = await ctx.db
       .query("users")
@@ -195,21 +195,6 @@ export const addMemberByEmail = mutation({
       });
     }
 
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: project.organizationId,
-      projectId: project._id,
-      action: "project.member_upserted",
-      resourceType: "project",
-      resourceId: String(project._id),
-      metadata: {
-        email: memberUser.email,
-        role: args.role,
-        organizationRole: args.organizationRole ?? existingOrgMembership?.role ?? "member",
-      },
-      createdAt: now,
-    });
-
     return null;
   },
 });
@@ -242,27 +227,11 @@ export const updateMemberRole = mutation({
     if (!project) {
       throw new ConvexError("Project not found");
     }
-    const { user } = await requireOrganizationAdminAccess(ctx, project.organizationId);
-    const memberUser = await ctx.db.get(membership.userId);
+    await requireOrganizationAdminAccess(ctx, project.organizationId);
 
     await ctx.db.patch(membership._id, {
       role: args.role,
     });
-    await ctx.db.insert("auditLogs", {
-      actorUserId: user._id,
-      organizationId: project.organizationId,
-      projectId: project._id,
-      action: "project.member_role_updated",
-      resourceType: "project",
-      resourceId: String(project._id),
-      metadata: {
-        membershipId: membership._id,
-        email: memberUser?.email,
-        role: args.role,
-      },
-      createdAt: Date.now(),
-    });
-
     return null;
   },
 });
