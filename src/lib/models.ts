@@ -69,8 +69,8 @@ const curatedCatalog: ModelCatalogEntry[] = [
     active: true,
   },
   {
-    id: "gemini-3.1-flash",
-    openRouterId: "google/gemini-3.1-flash",
+    id: "gemini-3-flash",
+    openRouterId: "google/gemini-3",
     name: "Gemini 3.1 Flash",
     provider: "OpenRouter",
     lab: "Google DeepMind",
