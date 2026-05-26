@@ -324,15 +324,21 @@ export function getModelCatalog(): ModelCatalogEntry[] {
     .map(withCatalogDefaults);
 }
 
+export function getArchivedModelCatalog(): ModelCatalogEntry[] {
+  return curatedCatalog
+    .filter((model) => !model.active)
+    .map(withCatalogDefaults);
+}
+
 export function getDefaultModels(): ModelCatalogEntry[] {
   return getModelCatalog().filter((model) => model.defaultEnabled);
 }
 
 export function getModelById(id: string): ModelCatalogEntry | undefined {
-  const direct = getModelCatalog().find((model) => model.id === id);
+  const direct = getFullModelCatalog().find((model) => model.id === id);
   if (direct) return direct;
   const alias = legacyModelAliases[id];
-  return alias ? getModelCatalog().find((model) => model.id === alias) : undefined;
+  return alias ? getFullModelCatalog().find((model) => model.id === alias) : undefined;
 }
 
 export function getModelIdentityById(id: string): ModelCatalogEntry | undefined {

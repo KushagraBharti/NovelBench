@@ -1,14 +1,29 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { clsx } from "clsx";
-import { getModelCatalog, MODEL_SELECTION_LIMITS, isValidOpenRouterModelId } from "@/lib/models";
+import { ChevronDown } from "lucide-react";
+import {
+  getArchivedModelCatalog,
+  getModelCatalog,
+  MODEL_SELECTION_LIMITS,
+  isValidOpenRouterModelId,
+} from "@/lib/models";
+import type { ModelCatalogEntry } from "@/types";
 
 interface ModelSelectorProps {
   selectedModelIds: string[];
   customModelIds: string[];
   onChange: (next: { selectedModelIds: string[]; customModelIds: string[] }) => void;
   disabled?: boolean;
+}
+
+function modelMatchesQuery(model: ModelCatalogEntry, needle: string) {
+  return (
+    model.name.toLowerCase().includes(needle) ||
+    model.lab.toLowerCase().includes(needle) ||
+    model.tags.some((tag) => tag.includes(needle))
+  );
 }
 
 export default function ModelSelector({
@@ -18,19 +33,35 @@ export default function ModelSelector({
   disabled,
 }: ModelSelectorProps) {
   const [query, setQuery] = useState("");
+  const [showArchivedModels, setShowArchivedModels] = useState(false);
   const [customModelInput, setCustomModelInput] = useState("");
-  const catalog = getModelCatalog();
+  const activeCatalog = useMemo(() => getModelCatalog(), []);
+  const archivedCatalog = useMemo(() => getArchivedModelCatalog(), []);
+  const fullCatalog = useMemo(
+    () => [...activeCatalog, ...archivedCatalog],
+    [activeCatalog, archivedCatalog],
+  );
+  const totalSelected = selectedModelIds.length + customModelIds.length;
+  const selectedCatalogModels = fullCatalog.filter((model) => selectedModelIds.includes(model.id));
+  const needle = query.trim().toLowerCase();
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return catalog;
-    return catalog.filter(
-      (model) =>
-        model.name.toLowerCase().includes(needle) ||
-        model.lab.toLowerCase().includes(needle) ||
-        model.tags.some((tag) => tag.includes(needle))
-    );
-  }, [catalog, query]);
+  const filteredActive = useMemo(() => {
+    if (!needle) return activeCatalog;
+    return activeCatalog.filter((model) => modelMatchesQuery(model, needle));
+  }, [activeCatalog, needle]);
+
+  const filteredArchived = useMemo(() => {
+    if (!needle) return archivedCatalog;
+    return archivedCatalog.filter((model) => modelMatchesQuery(model, needle));
+  }, [archivedCatalog, needle]);
+
+  const shouldShowArchivedModels = showArchivedModels || needle.length > 0;
+
+  useEffect(() => {
+    if (archivedCatalog.some((model) => selectedModelIds.includes(model.id))) {
+      setShowArchivedModels(true);
+    }
+  }, [archivedCatalog, selectedModelIds]);
 
   function toggleModel(modelId: string) {
     const nextIds = selectedModelIds.includes(modelId)
@@ -56,8 +87,41 @@ export default function ModelSelector({
     });
   }
 
-  const totalSelected = selectedModelIds.length + customModelIds.length;
-  const selectedCatalogModels = catalog.filter((model) => selectedModelIds.includes(model.id));
+  function renderModelRow(model: ModelCatalogEntry) {
+    const selected = selectedModelIds.includes(model.id);
+    const atLimit = !selected && totalSelected >= MODEL_SELECTION_LIMITS.max;
+
+    return (
+      <button
+        key={model.id}
+        type="button"
+        disabled={disabled || atLimit}
+        onClick={() => toggleModel(model.id)}
+        className={clsx(
+          "group w-full flex items-baseline gap-4 py-3 border-b border-border/30 text-left transition-colors",
+          selected ? "bg-white/[0.02]" : "hover:bg-white/[0.01]",
+          !model.active && "text-text-secondary",
+          (disabled || atLimit) && "cursor-not-allowed opacity-30"
+        )}
+      >
+        <span className="text-base text-text-primary group-hover:text-accent transition-colors truncate flex-1">
+          {model.name}
+        </span>
+        <span className="label text-[11px] hidden sm:block">
+          {model.lab}
+          {!model.active ? " / older" : ""}
+        </span>
+        <span
+          className={clsx(
+            "text-[11px] uppercase tracking-[0.22em] shrink-0 transition-colors",
+            selected ? "text-accent" : "text-text-muted/40",
+          )}
+        >
+          {selected ? "Selected" : "Add"}
+        </span>
+      </button>
+    );
+  }
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -120,38 +184,56 @@ export default function ModelSelector({
 
       {/* Model list */}
       <div className="mt-2 overflow-y-auto max-h-[360px] min-h-0 lg:max-h-none lg:flex-1">
-        {filtered.map((model) => {
-          const selected = selectedModelIds.includes(model.id);
-          const atLimit = !selected && totalSelected >= MODEL_SELECTION_LIMITS.max;
-          return (
-            <button
-              key={model.id}
-              type="button"
-              disabled={disabled || atLimit}
-              onClick={() => toggleModel(model.id)}
+        {filteredActive.map((model) => renderModelRow(model))}
+
+        {archivedCatalog.length > 0 && !needle && (
+          <button
+            type="button"
+            onClick={() => setShowArchivedModels((current) => !current)}
+            disabled={disabled}
+            className={clsx(
+              "group w-full flex items-center justify-between gap-4 py-3 border-b border-border/50 text-left transition-colors",
+              "hover:bg-white/[0.01] disabled:cursor-not-allowed disabled:opacity-30"
+            )}
+          >
+            <span>
+              <span className="label text-[11px]">Older Models</span>
+              <span className="ml-3 text-sm text-text-muted">
+                {showArchivedModels
+                  ? "Hide previous roster"
+                  : `${archivedCatalog.length} previous contenders`}
+              </span>
+            </span>
+            <ChevronDown
+              aria-hidden="true"
               className={clsx(
-                "group w-full flex items-baseline gap-4 py-3 border-b border-border/30 text-left transition-colors",
-                selected ? "bg-white/[0.02]" : "hover:bg-white/[0.01]",
-                (disabled || atLimit) && "cursor-not-allowed opacity-30"
+                "h-4 w-4 text-text-muted transition-transform group-hover:text-text-secondary",
+                shouldShowArchivedModels && "rotate-180"
               )}
-            >
-              <span className="text-base text-text-primary group-hover:text-accent transition-colors truncate flex-1">
-                {model.name}
+            />
+          </button>
+        )}
+
+        {shouldShowArchivedModels && filteredArchived.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between py-3 border-b border-border/40">
+              <p className="label text-[11px]">
+                {needle ? "Older Matches" : "Older Roster"}
+              </p>
+              <span className="font-mono text-[11px] text-text-muted/60 tabular-nums">
+                {filteredArchived.length}
               </span>
-              <span className="label text-[11px] hidden sm:block">
-                {model.lab}
-              </span>
-              <span
-                className={clsx(
-                  "text-[11px] uppercase tracking-[0.22em] shrink-0 transition-colors",
-                  selected ? "text-accent" : "text-text-muted/40",
-                )}
-              >
-                {selected ? "Selected" : "Add"}
-              </span>
-            </button>
-          );
-        })}
+            </div>
+            {filteredArchived.map((model) => renderModelRow(model))}
+          </div>
+        )}
+
+        {filteredActive.length === 0 &&
+          (!shouldShowArchivedModels || filteredArchived.length === 0) && (
+            <p className="py-6 text-sm text-text-muted">
+              No models match that search.
+            </p>
+          )}
       </div>
 
       {/* Custom model */}

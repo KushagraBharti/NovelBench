@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createBringYourOwnModel,
   getDefaultModels,
+  getModelCatalog,
   getModelById,
   getModelIdentityById,
   isValidOpenRouterModelId,
@@ -28,9 +29,11 @@ describe("model catalog", () => {
     expect(createBringYourOwnModel("openai/gpt-5.5").openRouterId).toBe("openai/gpt-5.5");
   });
 
-  it("keeps retired model identities without making them selectable", () => {
-    expect(getModelById("gpt-5.4")).toBeUndefined();
+  it("keeps older model identities selectable without putting them in the active roster", () => {
+    expect(getModelCatalog().some((model) => model.id === "gpt-5.4")).toBe(false);
+    expect(getModelById("gpt-5.4")?.active).toBe(false);
     expect(getModelIdentityById("gpt-5.4")?.name).toBe("GPT-5.4");
+    expect(resolveSelectedModels(["gpt-5.4"], [])[0]?.openRouterId).toBe("openai/gpt-5.4");
   });
 
   it("dedupes selected and custom models", () => {
