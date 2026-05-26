@@ -14,7 +14,7 @@ import {
 } from "./_generated/server";
 import { workflow } from "./workflow";
 import { MODEL_SELECTION_LIMITS, resolveSelectedModels } from "@/lib/models";
-import type { BenchmarkRunSummary, HumanCritiqueEntry, RunCheckpointStage } from "@/types";
+import type { BenchmarkRunSummary, HumanCritiqueEntry, RunCheckpointStage, StageWebTrace } from "@/types";
 import { requireAuthUser, requireProjectAccess } from "./lib/auth";
 import { getEffectiveProviderPolicy, isModelAllowedByPolicy } from "./lib/policies";
 import {
@@ -22,6 +22,7 @@ import {
   buildRunSearchText,
   canEditRun,
   canReadRun,
+  type CompactRunDocs,
   dayKeyFromTimestamp,
   runDocToSummary,
   runDocsToBenchmarkRun,
@@ -145,9 +146,27 @@ const LIVE_ACTIVITY_EVENT_KINDS = [
   "reasoning_detail",
 ] as const;
 
+const CONTROL_EVENT_FALLBACK_KINDS = [
+  "run_paused",
+  "run_resumed",
+  "run_canceled",
+  "run_restarted",
+  "run_retried",
+  "human_critique_proceeded",
+] as const;
+
 const MANUAL_ARCHIVE_SEARCH_CURSOR_PREFIX = "archive-search-offset:";
 
-type LiveActivityEventKind = (typeof LIVE_ACTIVITY_EVENT_KINDS)[number];
+type ControlActionType = "pause" | "resume" | "cancel" | "restart" | "retry" | "proceed";
+
+type LiveActivityEventDoc = {
+  _id: unknown;
+  createdAt: number;
+  kind: string;
+  stage: string;
+  participantModelId?: string;
+  payload?: unknown;
+};
 
 function participantReachedBenchmarkCompletion(stage: RunCheckpointStage) {
   return stage === "vote";
@@ -570,13 +589,16 @@ async function cancelRunWithReason(
     completedAt: args.now,
     error: args.reason,
   });
-  await ctx.db.insert("runEvents", {
+  await ctx.scheduler.runAfter(0, internal.runs.pruneRunLiveEventsInternal, {
+    runId: args.run._id,
+  });
+  await insertRunControlEvent(ctx, {
     runId: args.run._id,
     stage: args.run.checkpointStage,
-    kind: args.eventKind,
-    participantModelId: undefined,
-    message: args.reason,
-    payload: args.metadata,
+    action: "cancel",
+    actor: args.eventKind === "run_auto_canceled_stale" ? "system" : "user",
+    actorUserId: args.actorUserId,
+    reason: args.reason,
     createdAt: args.now,
   });
   if (args.run.workflowId) {
@@ -618,18 +640,88 @@ async function loadAccessibleRun(
   return { run, viewerUserId, membership, organizationMembership };
 }
 
+async function loadCompactRunDocs(
+  ctx: QueryCtx | MutationCtx,
+  runId: Id<"runs">,
+): Promise<CompactRunDocs> {
+  const [humanCritiques, sources, failures, controls, reasoningSummaries] = await Promise.all([
+    ctx.db
+      .query("runHumanCritiques")
+      .withIndex("by_run_and_created_at", (q) => q.eq("runId", runId))
+      .collect(),
+    ctx.db
+      .query("runSources")
+      .withIndex("by_run_and_created_at", (q) => q.eq("runId", runId))
+      .collect(),
+    ctx.db
+      .query("runFailures")
+      .withIndex("by_run_and_created_at", (q) => q.eq("runId", runId))
+      .collect(),
+    ctx.db
+      .query("runControlEvents")
+      .withIndex("by_run_and_created_at", (q) => q.eq("runId", runId))
+      .collect(),
+    ctx.db.query("runReasoningSummaries").withIndex("by_run", (q) => q.eq("runId", runId)).collect(),
+  ]);
+
+  return {
+    humanCritiques,
+    sources,
+    failures,
+    controls,
+    reasoningSummaries,
+  };
+}
+
+async function loadDurableEventFallbacks(
+  ctx: QueryCtx | MutationCtx,
+  runId: Id<"runs">,
+  compact: CompactRunDocs,
+) {
+  const kinds = new Set<string>();
+  if (compact.humanCritiques.length === 0) {
+    kinds.add("human_critique_submitted");
+  }
+  if (compact.sources.length === 0) {
+    kinds.add("web_stage_trace");
+  }
+  if (compact.failures.length === 0) {
+    kinds.add("model_failed");
+    kinds.add("run_failed");
+  }
+  if (compact.controls.length === 0) {
+    for (const kind of CONTROL_EVENT_FALLBACK_KINDS) {
+      kinds.add(kind);
+    }
+  }
+  if (compact.reasoningSummaries.length === 0) {
+    kinds.add("reasoning_detail");
+  }
+
+  const events = (
+    await Promise.all(
+      Array.from(kinds).map((kind) =>
+        ctx.db
+          .query("runEvents")
+          .withIndex("by_run_kind_and_created_at", (q) => q.eq("runId", runId).eq("kind", kind))
+          .collect(),
+      ),
+    )
+  ).flat();
+
+  return events.sort((a, b) => a.createdAt - b.createdAt);
+}
+
 async function hydrateRun(
   ctx: QueryCtx | MutationCtx,
   run: Doc<"runs">,
 ) {
-  const [participants, events] = await Promise.all([
+  const [participants, compact] = await Promise.all([
     ctx.db.query("runParticipants").withIndex("by_run", (q) => q.eq("runId", run._id)).collect(),
-    ctx.db
-      .query("runEvents")
-      .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
-      .collect(),
+    loadCompactRunDocs(ctx, run._id),
   ]);
-  return runDocsToBenchmarkRun({ run, participants, events });
+  const events = await loadDurableEventFallbacks(ctx, run._id, compact);
+  return runDocsToBenchmarkRun({ run, participants, events, compact });
 }
 
 async function hydrateRunLite(
@@ -643,14 +735,7 @@ async function hydrateRunLite(
   return runDocsToBenchmarkRunLite({ run, participants });
 }
 
-function mapLiveActivityEvents<
-  T extends Pick<
-    Doc<"runEvents">,
-    "_id" | "createdAt" | "kind" | "stage" | "participantModelId" | "payload"
-  >,
->(
-  events: T[],
-) {
+function mapLiveActivityEvents<T extends LiveActivityEventDoc>(events: T[]) {
   return events.map((event) => ({
     id: String(event._id),
     kind: event.kind,
@@ -659,6 +744,97 @@ function mapLiveActivityEvents<
     payload: event.payload ?? null,
     createdAt: event.createdAt,
   }));
+}
+
+async function insertRunControlEvent(
+  ctx: MutationCtx,
+  args: {
+    runId: Id<"runs">;
+    stage: RunCheckpointStage;
+    action: ControlActionType;
+    actor: "user" | "system";
+    actorUserId?: Id<"users">;
+    participantModelId?: string;
+    reason?: string;
+    createdAt: number;
+    sourceEventId?: string;
+  },
+) {
+  await ctx.db.insert("runControlEvents", {
+    runId: args.runId,
+    stage: args.stage,
+    action: args.action,
+    scope: args.participantModelId ? "model" : "run",
+    actor: args.actor,
+    actorUserId: args.actorUserId,
+    participantModelId: args.participantModelId,
+    reason: args.reason,
+    createdAt: args.createdAt,
+    sourceEventId: args.sourceEventId,
+  });
+}
+
+function appendOptionalText(existing?: string, next?: string) {
+  const value = `${existing ?? ""}${next ?? ""}`;
+  return value || undefined;
+}
+
+async function upsertReasoningSummary(
+  ctx: MutationCtx,
+  args: {
+    runId: Id<"runs">;
+    stage: "generate" | "revise";
+    participantModelId: string;
+    turn?: number;
+    detail: {
+      detailId: string;
+      detailType: "reasoning.summary" | "reasoning.encrypted" | "reasoning.text";
+      format?: string;
+      index?: number;
+      text?: string;
+      summary?: string;
+      data?: string;
+      signature?: string;
+    };
+    updatedAt: number;
+    sourceEventId?: string;
+  },
+) {
+  const existing = await ctx.db
+    .query("runReasoningSummaries")
+    .withIndex("by_run_participant_model_id_and_detail_id", (q) =>
+      q
+        .eq("runId", args.runId)
+        .eq("participantModelId", args.participantModelId)
+        .eq("detailId", args.detail.detailId),
+    )
+    .first();
+
+  const next = {
+    stage: args.stage,
+    participantModelId: args.participantModelId,
+    detailId: args.detail.detailId,
+    detailType: args.detail.detailType,
+    turn: args.turn ?? existing?.turn,
+    format: args.detail.format ?? existing?.format,
+    index: args.detail.index ?? existing?.index,
+    text: appendOptionalText(existing?.text, args.detail.text),
+    summary: appendOptionalText(existing?.summary, args.detail.summary),
+    data: appendOptionalText(existing?.data, args.detail.data),
+    signature: args.detail.signature ?? existing?.signature,
+    updatedAt: args.updatedAt,
+    sourceEventId: args.sourceEventId ?? existing?.sourceEventId,
+  };
+
+  if (existing) {
+    await ctx.db.patch(existing._id, next);
+    return;
+  }
+
+  await ctx.db.insert("runReasoningSummaries", {
+    runId: args.runId,
+    ...next,
+  });
 }
 
 async function loadExecutionContext(
@@ -1537,7 +1713,19 @@ export const liveActivitySince = query({
     }
 
     const sinceCreatedAt = args.sinceCreatedAt ?? 0;
-    const events = (
+    const liveEvents = (
+      await Promise.all(
+        LIVE_ACTIVITY_EVENT_KINDS.map((kind) =>
+          ctx.db
+            .query("runLiveEvents")
+            .withIndex("by_run_kind_and_created_at", (q) =>
+              q.eq("runId", args.runId).eq("kind", kind).gte("createdAt", sinceCreatedAt),
+            )
+            .collect(),
+        ),
+      )
+    ).flat();
+    const legacyEvents = (
       await Promise.all(
         LIVE_ACTIVITY_EVENT_KINDS.map((kind) =>
           ctx.db
@@ -1551,7 +1739,7 @@ export const liveActivitySince = query({
     ).flat();
 
     const filteredEvents = filterLiveActivityEventsSince(
-      events,
+      [...legacyEvents, ...liveEvents],
       sinceCreatedAt > 0 || args.sinceEventId
         ? {
             createdAt: sinceCreatedAt,
@@ -1560,14 +1748,7 @@ export const liveActivitySince = query({
         : null,
     );
 
-    return mapLiveActivityEvents(
-      filteredEvents as Array<
-        Pick<
-          Doc<"runEvents">,
-          "_id" | "createdAt" | "kind" | "stage" | "participantModelId" | "payload"
-        >
-      >,
-    );
+    return mapLiveActivityEvents(filteredEvents as LiveActivityEventDoc[]);
   },
 });
 
@@ -2131,7 +2312,7 @@ export const create = mutation({
       });
     }
 
-    const participants = await Promise.all(
+    await Promise.all(
       selectedModels.map((model, index) =>
         ctx.db.insert("runParticipants", {
           runId,
@@ -2182,19 +2363,6 @@ export const create = mutation({
         categoryId: args.categoryId,
         selectedModelIds: selectedModels.map((model) => model.id),
       },
-    });
-
-    await ctx.db.insert("runEvents", {
-      runId,
-      stage: "generate",
-      kind: "queued",
-      participantModelId: undefined,
-      message: "Benchmark run queued",
-      payload: {
-        createdByUserId: user._id,
-        selectedModelIds: selectedModels.map((model) => model.id),
-      },
-      createdAt: now,
     });
 
     await ctx.db.insert("auditLogs", {
@@ -2251,17 +2419,7 @@ export const create = mutation({
     if (!run) {
       throw new ConvexError("Run creation failed");
     }
-    const events = await ctx.db
-      .query("runEvents")
-      .withIndex("by_run_and_created_at", (q) => q.eq("runId", runId))
-      .collect();
-    const participantDocs = await Promise.all(participants.map((participantId) => ctx.db.get(participantId)));
-
-    return runDocsToBenchmarkRun({
-      run,
-      participants: participantDocs.filter(Boolean) as Doc<"runParticipants">[],
-      events,
-    });
+    return await hydrateRun(ctx, run);
   },
 });
 
@@ -2293,12 +2451,13 @@ export const pause = mutation({
       staleDeadlineAt: lifecycleState.staleDeadlineAt,
       staleCheckToken: lifecycleState.staleCheckToken,
     });
-    await ctx.db.insert("runEvents", {
+    await insertRunControlEvent(ctx, {
       runId: run._id,
       stage: run.checkpointStage,
-      kind: "run_paused",
-      participantModelId: undefined,
-      message: args.reason ?? "Paused by user",
+      action: "pause",
+      actor: "user",
+      actorUserId: user._id,
+      reason: args.reason ?? "Paused by user",
       createdAt: now,
     });
     await ctx.db.insert("auditLogs", {
@@ -2360,12 +2519,13 @@ export const resume = mutation({
       staleDeadlineAt: lifecycleState.staleDeadlineAt,
       staleCheckToken: lifecycleState.staleCheckToken,
     });
-    await ctx.db.insert("runEvents", {
+    await insertRunControlEvent(ctx, {
       runId: run._id,
       stage: run.checkpointStage,
-      kind: "run_resumed",
-      participantModelId: undefined,
-      message: "Resumed by user",
+      action: "resume",
+      actor: "user",
+      actorUserId: user._id,
+      reason: "Resumed by user",
       createdAt: now,
     });
     if (run.workflowId) {
@@ -2436,12 +2596,13 @@ export const proceed = mutation({
       staleDeadlineAt: lifecycleState.staleDeadlineAt,
       staleCheckToken: lifecycleState.staleCheckToken,
     });
-    await ctx.db.insert("runEvents", {
+    await insertRunControlEvent(ctx, {
       runId: run._id,
       stage: "human_critique",
-      kind: "human_critique_proceeded",
-      participantModelId: undefined,
-      message: "Human critique checkpoint approved",
+      action: "proceed",
+      actor: "user",
+      actorUserId: user._id,
+      reason: "Human critique checkpoint approved",
       createdAt: now,
     });
     if (run.workflowId) {
@@ -2564,15 +2725,21 @@ export const submitHumanCritiques = mutation({
       timestamp: critique.timestamp ?? new Date(now).toISOString(),
     }));
 
-    await ctx.db.insert("runEvents", {
-      runId: run._id,
-      stage: "human_critique",
-      kind: "human_critique_submitted",
-      participantModelId: undefined,
-      message: `Submitted ${critiques.length} human critiques`,
-      payload: { critiques },
-      createdAt: now,
-    });
+    for (const [index, critique] of critiques.entries()) {
+      await ctx.db.insert("runHumanCritiques", {
+        runId: run._id,
+        targetModelId: critique.targetModelId,
+        critiqueId: critique.id,
+        ideaLabel: critique.ideaLabel,
+        strengths: critique.strengths,
+        weaknesses: critique.weaknesses,
+        suggestions: critique.suggestions,
+        score: critique.score,
+        authorLabel: critique.authorLabel,
+        createdAt: Date.parse(critique.timestamp) || now,
+        sourceIndex: index,
+      });
+    }
     const lifecycleState = buildRunLifecycleState(run.status, now);
     await ctx.db.patch(run._id, {
       humanCritiqueCount: (run.humanCritiqueCount ?? 0) + critiques.length,
@@ -2769,6 +2936,78 @@ export const removeBatchInternal = internalMutation({
       return null;
     }
 
+    const liveEvents = await ctx.db
+      .query("runLiveEvents")
+      .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
+      .take(DELETE_BATCH_SIZE);
+    if (liveEvents.length > 0) {
+      for (const event of liveEvents) {
+        await ctx.db.delete(event._id);
+      }
+      await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
+      return null;
+    }
+
+    const humanCritiques = await ctx.db
+      .query("runHumanCritiques")
+      .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
+      .take(DELETE_BATCH_SIZE);
+    if (humanCritiques.length > 0) {
+      for (const critique of humanCritiques) {
+        await ctx.db.delete(critique._id);
+      }
+      await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
+      return null;
+    }
+
+    const sources = await ctx.db
+      .query("runSources")
+      .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
+      .take(DELETE_BATCH_SIZE);
+    if (sources.length > 0) {
+      for (const source of sources) {
+        await ctx.db.delete(source._id);
+      }
+      await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
+      return null;
+    }
+
+    const failures = await ctx.db
+      .query("runFailures")
+      .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
+      .take(DELETE_BATCH_SIZE);
+    if (failures.length > 0) {
+      for (const failure of failures) {
+        await ctx.db.delete(failure._id);
+      }
+      await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
+      return null;
+    }
+
+    const controls = await ctx.db
+      .query("runControlEvents")
+      .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
+      .take(DELETE_BATCH_SIZE);
+    if (controls.length > 0) {
+      for (const control of controls) {
+        await ctx.db.delete(control._id);
+      }
+      await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
+      return null;
+    }
+
+    const reasoningSummaries = await ctx.db
+      .query("runReasoningSummaries")
+      .withIndex("by_run", (q) => q.eq("runId", run._id))
+      .take(DELETE_BATCH_SIZE);
+    if (reasoningSummaries.length > 0) {
+      for (const summary of reasoningSummaries) {
+        await ctx.db.delete(summary._id);
+      }
+      await ctx.scheduler.runAfter(0, internal.runs.removeBatchInternal, args);
+      return null;
+    }
+
     const artifacts = await ctx.db
       .query("runArtifacts")
       .withIndex("by_run", (q) => q.eq("runId", run._id))
@@ -2919,27 +3158,77 @@ export const getReviseBundleInternal = internalQuery({
   returns: v.any(),
   handler: async (ctx, args) => {
     const execution = await loadExecutionContext(ctx, args.runId);
-    const [participants, humanCritiqueEvents, generateTraceEvents] = await Promise.all([
+    const [participants, humanCritiques, sourceTraces] = await Promise.all([
       ctx.db.query("runParticipants").withIndex("by_run", (q) => q.eq("runId", args.runId)).collect(),
       ctx.db
-        .query("runEvents")
-        .withIndex("by_run_stage_kind_and_created_at", (q) =>
-          q
-            .eq("runId", execution.run._id)
-            .eq("stage", "human_critique")
-            .eq("kind", "human_critique_submitted"),
-        )
+        .query("runHumanCritiques")
+        .withIndex("by_run_and_created_at", (q) => q.eq("runId", execution.run._id))
         .collect(),
       ctx.db
-        .query("runEvents")
-        .withIndex("by_run_stage_kind_and_created_at", (q) =>
-          q
-            .eq("runId", execution.run._id)
-            .eq("stage", "generate")
-            .eq("kind", "web_stage_trace"),
+        .query("runSources")
+        .withIndex("by_run_stage_and_participant_model_id", (q) =>
+          q.eq("runId", execution.run._id).eq("stage", "generate"),
         )
         .collect(),
     ]);
+    const [legacyHumanCritiqueEvents, legacyGenerateTraceEvents] = await Promise.all([
+      humanCritiques.length > 0
+        ? Promise.resolve([])
+        : ctx.db
+            .query("runEvents")
+            .withIndex("by_run_stage_kind_and_created_at", (q) =>
+              q
+                .eq("runId", execution.run._id)
+                .eq("stage", "human_critique")
+                .eq("kind", "human_critique_submitted"),
+            )
+            .collect(),
+      sourceTraces.length > 0
+        ? Promise.resolve([])
+        : ctx.db
+            .query("runEvents")
+            .withIndex("by_run_stage_kind_and_created_at", (q) =>
+              q
+                .eq("runId", execution.run._id)
+                .eq("stage", "generate")
+                .eq("kind", "web_stage_trace"),
+            )
+            .collect(),
+    ]);
+    const humanCritiqueEvents =
+      humanCritiques.length > 0
+        ? [
+            {
+              kind: "human_critique_submitted",
+              payload: {
+                critiques: humanCritiques.map((critique) => ({
+                  id: critique.critiqueId,
+                  ideaLabel: critique.ideaLabel,
+                  targetModelId: critique.targetModelId,
+                  strengths: critique.strengths,
+                  weaknesses: critique.weaknesses,
+                  suggestions: critique.suggestions,
+                  score: critique.score,
+                  authorLabel: critique.authorLabel,
+                  timestamp: new Date(critique.createdAt).toISOString(),
+                })),
+              },
+            },
+          ]
+        : legacyHumanCritiqueEvents;
+    const generateTraceEvents =
+      sourceTraces.length > 0
+        ? sourceTraces.map((trace) => ({
+            kind: "web_stage_trace",
+            payload: {
+              stage: trace.stage,
+              modelId: trace.participantModelId,
+              toolCalls: trace.toolCalls,
+              retrievedSources: trace.retrievedSources,
+              usage: trace.usage,
+            } satisfies StageWebTrace,
+          }))
+        : legacyGenerateTraceEvents;
 
     return {
       run: execution.run,
@@ -3050,18 +3339,19 @@ export const recordWebTraceInternal = internalMutation({
     if (!run) {
       throw new ConvexError("Run not found");
     }
+    const trace = args.trace as StageWebTrace;
 
-    await ctx.db.insert("runEvents", {
+    await ctx.db.insert("runSources", {
       runId: args.runId,
       stage: args.stage,
-      kind: "web_stage_trace",
       participantModelId: args.participantModelId,
-      message: `${args.participantModelId} ${args.stage} web trace`,
-      payload: args.trace,
+      toolCalls: trace.toolCalls ?? [],
+      retrievedSources: trace.retrievedSources ?? [],
+      usage: trace.usage,
       createdAt: args.createdAt,
     });
 
-    if (args.trace?.usage?.usedSearch) {
+    if (trace.usage?.usedSearch) {
       await ctx.db.insert("usageLedger", {
         runId: args.runId,
         organizationId: run.organizationId,
@@ -3088,12 +3378,11 @@ export const appendLiveTokenEventInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.db.insert("runEvents", {
+    await ctx.db.insert("runLiveEvents", {
       runId: args.runId,
       stage: args.stage,
       kind: "live_token",
       participantModelId: args.participantModelId,
-      message: `${args.participantModelId} ${args.stage} token chunk`,
       payload: { chunk: args.chunk },
       createdAt: args.createdAt,
     });
@@ -3118,12 +3407,11 @@ export const appendToolCallEventInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.db.insert("runEvents", {
+    await ctx.db.insert("runLiveEvents", {
       runId: args.runId,
       stage: args.stage,
       kind: "tool_call_activity",
       participantModelId: args.participantModelId,
-      message: `${args.participantModelId} ${args.stage} ${args.toolName} ${args.state}`,
       payload: {
         state: args.state,
         toolName: args.toolName,
@@ -3162,12 +3450,11 @@ export const appendReasoningDetailsInternal = internalMutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await ctx.db.insert("runEvents", {
+    await ctx.db.insert("runLiveEvents", {
       runId: args.runId,
       stage: args.stage,
       kind: "reasoning_detail",
       participantModelId: args.participantModelId,
-      message: `${args.participantModelId} ${args.stage} reasoning detail batch`,
       payload: {
         batch: true,
         turn: args.turn,
@@ -3175,6 +3462,37 @@ export const appendReasoningDetailsInternal = internalMutation({
       },
       createdAt: args.createdAt,
     });
+    for (const detail of args.details) {
+      await upsertReasoningSummary(ctx, {
+        runId: args.runId,
+        stage: args.stage,
+        participantModelId: args.participantModelId,
+        turn: args.turn,
+        detail,
+        updatedAt: args.createdAt,
+      });
+    }
+    return null;
+  },
+});
+
+export const pruneRunLiveEventsInternal = internalMutation({
+  args: {
+    runId: v.id("runs"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const liveEvents = await ctx.db
+      .query("runLiveEvents")
+      .withIndex("by_run_and_created_at", (q) => q.eq("runId", args.runId))
+      .take(DELETE_BATCH_SIZE);
+    if (liveEvents.length === 0) {
+      return null;
+    }
+    for (const event of liveEvents) {
+      await ctx.db.delete(event._id);
+    }
+    await ctx.scheduler.runAfter(0, internal.runs.pruneRunLiveEventsInternal, args);
     return null;
   },
 });
@@ -3271,20 +3589,6 @@ export const updateRunForStageInternal = internalMutation({
       staleCheckToken: lifecycleState.staleCheckToken,
     });
 
-    await ctx.db.insert("runEvents", {
-      runId: args.runId,
-      stage: args.stage,
-      kind: "stage_updated",
-      participantModelId: undefined,
-      message: args.currentStep,
-      payload: {
-        status: args.status,
-        eligibleCount: args.eligibleCount,
-        completedCount: args.completedCount,
-        readyCount: args.readyCount,
-      },
-      createdAt: now,
-    });
     return null;
   },
 });
@@ -3322,14 +3626,6 @@ export const markParticipantStartedInternal = internalMutation({
       runId: args.runId,
       staleDeadlineAt: lifecycleState.staleDeadlineAt,
       staleCheckToken: lifecycleState.staleCheckToken,
-    });
-    await ctx.db.insert("runEvents", {
-      runId: args.runId,
-      stage: args.stage,
-      kind: "model_started",
-      participantModelId: participant.modelId,
-      message: `${participant.modelName} started ${args.stage}`,
-      createdAt: args.startedAt,
     });
     return null;
   },
@@ -3442,20 +3738,6 @@ export const recordParticipantStageSuccessInternal = internalMutation({
       staleCheckToken: lifecycleState.staleCheckToken,
     });
 
-    await ctx.db.insert("runEvents", {
-      runId: args.runId,
-      stage: args.stage,
-      kind: "model_completed",
-      participantModelId: participant.modelId,
-      message: `${participant.modelName} completed ${args.stage}`,
-      payload: {
-        latencyMs: args.latencyMs,
-        inputTokens: args.inputTokens,
-        outputTokens: args.outputTokens,
-        estimatedCostUsd: args.estimatedCostUsd,
-      },
-      createdAt: args.completedAt,
-    });
     return null;
   },
 });
@@ -3500,15 +3782,12 @@ export const recordParticipantStageFailureInternal = internalMutation({
       staleCheckToken: lifecycleState.staleCheckToken,
     });
 
-    await ctx.db.insert("runEvents", {
+    await ctx.db.insert("runFailures", {
       runId: args.runId,
       stage: args.stage,
-      kind: "model_failed",
       participantModelId: participant.modelId,
       message: args.message,
-      payload: {
-        retryable: args.retryable,
-      },
+      retryable: args.retryable,
       createdAt: args.completedAt,
     });
     return null;
@@ -3613,24 +3892,17 @@ export const finalizeRunOutcomeInternal = internalMutation({
       now,
     );
 
-    await ctx.db.insert("runEvents", {
-      runId: args.runId,
-      stage: "complete",
-      kind: "run_finalized",
-      participantModelId: undefined,
-      message: args.currentStep,
-      payload: {
-        status: args.status,
-        finalWinnerModelId: args.finalWinnerModelId,
-      },
-      createdAt: now,
-    });
     await finalizeBenchmarkJob(ctx, {
       runId: args.runId,
       status: args.status,
       completedAt: now,
       error: args.error,
     });
+    if (isTerminalRunStatus(args.status)) {
+      await ctx.scheduler.runAfter(0, internal.runs.pruneRunLiveEventsInternal, {
+        runId: args.runId,
+      });
+    }
     if (args.status === "dead_lettered") {
       await recordValidationRepairJob(ctx, {
         run: {
@@ -3664,15 +3936,6 @@ export const recordPostCompletionIssueInternal = internalMutation({
     }
 
     const now = Date.now();
-    await ctx.db.insert("runEvents", {
-      runId: args.runId,
-      stage: "complete",
-      kind: args.kind,
-      participantModelId: undefined,
-      message: args.message,
-      payload: args.payload,
-      createdAt: now,
-    });
     await ctx.db.insert("auditLogs", {
       actorUserId: run.ownerUserId,
       organizationId: run.organizationId,
@@ -3910,17 +4173,25 @@ export const getHistoricalRepairPageInternal = internalQuery({
 
       let humanCritiqueCount = run.humanCritiqueCount ?? 0;
       if (run.humanCritiqueCount == null) {
-        const critiqueEvents = await ctx.db
-          .query("runEvents")
-          .withIndex("by_run_kind_and_created_at", (q) =>
-            q.eq("runId", run._id).eq("kind", "human_critique_submitted"),
-          )
+        const humanCritiques = await ctx.db
+          .query("runHumanCritiques")
+          .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
           .collect();
-        humanCritiqueCount = critiqueEvents.reduce(
-          (sum, event) =>
-            sum + (((event.payload as { critiques?: unknown[] } | undefined)?.critiques?.length) ?? 0),
-          0,
-        );
+        if (humanCritiques.length > 0) {
+          humanCritiqueCount = humanCritiques.length;
+        } else {
+          const critiqueEvents = await ctx.db
+            .query("runEvents")
+            .withIndex("by_run_kind_and_created_at", (q) =>
+              q.eq("runId", run._id).eq("kind", "human_critique_submitted"),
+            )
+            .collect();
+          humanCritiqueCount = critiqueEvents.reduce(
+            (sum, event) =>
+              sum + (((event.payload as { critiques?: unknown[] } | undefined)?.critiques?.length) ?? 0),
+            0,
+          );
+        }
       }
 
       const validFinalOutcome = hasValidFinalOutcome(run, participants);
@@ -4088,19 +4359,6 @@ export const applyHistoricalRepairBatchInternal = internalMutation({
             });
           }
         }
-
-        await ctx.db.insert("runEvents", {
-          runId: run._id,
-          stage: "complete",
-          kind: "run_status_repaired",
-          participantModelId: undefined,
-          message: `Run repaired from ${run.status} to ${rawRepair.nextStatus}`,
-          payload: {
-            previousStatus: run.status,
-            nextStatus: rawRepair.nextStatus,
-          },
-          createdAt: now,
-        });
 
         if (rawRepair.nextStatus === "complete") {
           await finalizeBenchmarkJob(ctx, {

@@ -24,6 +24,23 @@ function uniqueModelIds(values: string[]) {
   return Array.from(new Set(values));
 }
 
+export type CompactRunDocs = {
+  humanCritiques: Doc<"runHumanCritiques">[];
+  sources: Doc<"runSources">[];
+  failures: Doc<"runFailures">[];
+  controls: Doc<"runControlEvents">[];
+  reasoningSummaries: Doc<"runReasoningSummaries">[];
+};
+
+const CONTROL_EVENT_KIND_TO_ACTION: Record<string, ControlActionRecord["action"]> = {
+  run_paused: "pause",
+  run_resumed: "resume",
+  run_canceled: "cancel",
+  run_restarted: "restart",
+  run_retried: "retry",
+  human_critique_proceeded: "proceed",
+};
+
 function completedModelIdsForStage(
   stage: BenchmarkRun["checkpoint"]["stage"],
   participants: Doc<"runParticipants">[],
@@ -54,29 +71,12 @@ function completedModelIdsForStage(
 
 function controlHistoryFromEvents(events: Doc<"runEvents">[]): ControlActionRecord[] {
   return events
-    .filter((event) =>
-      [
-        "run_paused",
-        "run_resumed",
-        "run_canceled",
-        "run_restarted",
-        "run_retried",
-        "human_critique_proceeded",
-      ].includes(event.kind),
-    )
+    .filter((event) => event.kind in CONTROL_EVENT_KIND_TO_ACTION)
     .map((event) => {
-      const kindToAction: Record<string, ControlActionRecord["action"]> = {
-        run_paused: "pause",
-        run_resumed: "resume",
-        run_canceled: "cancel",
-        run_restarted: "restart",
-        run_retried: "retry",
-        human_critique_proceeded: "proceed",
-      };
       return {
         id: `${event._id}`,
         scope: event.participantModelId ? "model" : "run",
-        action: kindToAction[event.kind] ?? "resume",
+        action: CONTROL_EVENT_KIND_TO_ACTION[event.kind] ?? "resume",
         timestamp: toIso(event.createdAt),
         actor: "user",
         stage: event.stage,
@@ -84,6 +84,22 @@ function controlHistoryFromEvents(events: Doc<"runEvents">[]): ControlActionReco
         reason: event.message,
       };
     });
+}
+
+function controlHistoryFromDocs(events: Doc<"runControlEvents">[]): ControlActionRecord[] {
+  return events
+    .slice()
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((event) => ({
+      id: `${event._id}`,
+      scope: event.scope,
+      action: event.action,
+      timestamp: toIso(event.createdAt),
+      actor: event.actor,
+      stage: event.stage,
+      modelId: event.participantModelId,
+      reason: event.reason,
+    }));
 }
 
 function defaultModelControls(participants: Doc<"runParticipants">[]) {
@@ -138,6 +154,20 @@ function deriveFailures(events: Doc<"runEvents">[]): RunFailureRecord[] {
     }));
 }
 
+function mapFailuresFromDocs(failures: Doc<"runFailures">[]): RunFailureRecord[] {
+  return failures
+    .slice()
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map((failure) => ({
+      id: failure.sourceEventId ?? `${failure._id}`,
+      stage: failure.stage,
+      modelId: failure.participantModelId,
+      message: failure.message,
+      retryable: failure.retryable,
+      timestamp: toIso(failure.createdAt),
+    }));
+}
+
 function mapIdeas(
   participants: Doc<"runParticipants">[],
   field: "generatedIdea" | "revisedIdea",
@@ -180,6 +210,26 @@ function mapHumanCritiques(events: Doc<"runEvents">[]): HumanCritiqueEntry[] {
     });
 }
 
+function mapHumanCritiquesFromDocs(critiques: Doc<"runHumanCritiques">[]): HumanCritiqueEntry[] {
+  return critiques
+    .slice()
+    .sort((a, b) => {
+      if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+      return (a.sourceIndex ?? 0) - (b.sourceIndex ?? 0);
+    })
+    .map((critique) => ({
+      id: critique.critiqueId,
+      ideaLabel: critique.ideaLabel,
+      targetModelId: critique.targetModelId,
+      strengths: critique.strengths,
+      weaknesses: critique.weaknesses,
+      suggestions: critique.suggestions,
+      score: critique.score,
+      authorLabel: critique.authorLabel,
+      timestamp: toIso(critique.createdAt),
+    }));
+}
+
 function mapWebState(events: Doc<"runEvents">[]) {
   const latestTraces = new Map<string, StageWebTrace>();
 
@@ -193,6 +243,19 @@ function mapWebState(events: Doc<"runEvents">[]) {
   }
 
   return mergeStageWebTraces(Array.from(latestTraces.values()), DEFAULT_WEB_SEARCH_CONFIG);
+}
+
+function mapWebStateFromSources(sources: Doc<"runSources">[]) {
+  return mergeStageWebTraces(
+    sources.map((source) => ({
+      stage: source.stage,
+      modelId: source.participantModelId,
+      toolCalls: source.toolCalls as StageWebTrace["toolCalls"],
+      retrievedSources: source.retrievedSources as StageWebTrace["retrievedSources"],
+      usage: source.usage as StageWebTrace["usage"],
+    })),
+    DEFAULT_WEB_SEARCH_CONFIG,
+  );
 }
 
 function mergeReasoningDetailRecords(
@@ -313,14 +376,39 @@ export function mapReasoningState(events: Doc<"runEvents">[]) {
   }
 
   return {
-    details: Array.from(merged.values()).sort((a, b) => {
-      if (a.modelId !== b.modelId) return a.modelId.localeCompare(b.modelId);
-      if (a.stage !== b.stage) return a.stage.localeCompare(b.stage);
-      if ((a.turn ?? 0) !== (b.turn ?? 0)) return (a.turn ?? 0) - (b.turn ?? 0);
-      if (a.index !== undefined && b.index !== undefined && a.index !== b.index) return a.index - b.index;
-      return a.id.localeCompare(b.id);
-    }),
+    details: sortReasoningDetails(Array.from(merged.values())),
   };
+}
+
+function mapReasoningStateFromSummaries(summaries: Doc<"runReasoningSummaries">[]) {
+  return {
+    details: sortReasoningDetails(
+      summaries.map((summary) => ({
+        id: summary.detailId,
+        stage: summary.stage,
+        modelId: summary.participantModelId,
+        turn: summary.turn,
+        type: summary.detailType,
+        format: summary.format,
+        index: summary.index,
+        text: summary.text,
+        summary: summary.summary,
+        data: summary.data,
+        signature: summary.signature,
+        updatedAt: toIso(summary.updatedAt),
+      })),
+    ),
+  };
+}
+
+function sortReasoningDetails(details: ReasoningDetailRecord[]) {
+  return details.sort((a, b) => {
+    if (a.modelId !== b.modelId) return a.modelId.localeCompare(b.modelId);
+    if (a.stage !== b.stage) return a.stage.localeCompare(b.stage);
+    if ((a.turn ?? 0) !== (b.turn ?? 0)) return (a.turn ?? 0) - (b.turn ?? 0);
+    if (a.index !== undefined && b.index !== undefined && a.index !== b.index) return a.index - b.index;
+    return a.id.localeCompare(b.id);
+  });
 }
 
 export function canReadRun(
@@ -383,12 +471,15 @@ export function runDocsToBenchmarkRun(args: {
   run: Doc<"runs">;
   participants: Doc<"runParticipants">[];
   events: Doc<"runEvents">[];
+  compact?: CompactRunDocs;
 }): BenchmarkRun {
   const ideas = mapIdeas(args.participants, "generatedIdea");
   const revisedIdeas = mapIdeas(args.participants, "revisedIdea");
   const critiqueVotes = mapCritiqueVotes(args.participants);
   const finalRankings = mapRankings(args.participants);
-  const history = controlHistoryFromEvents(args.events);
+  const history = args.compact?.controls.length
+    ? controlHistoryFromDocs(args.compact.controls)
+    : controlHistoryFromEvents(args.events);
   const modelControls = defaultModelControls(args.participants);
   const controls: BenchmarkControlState = {
     history,
@@ -422,7 +513,9 @@ export function runDocsToBenchmarkRun(args: {
     error: args.run.error,
     ideas,
     critiqueVotes,
-    humanCritiques: mapHumanCritiques(args.events),
+    humanCritiques: args.compact?.humanCritiques.length
+      ? mapHumanCritiquesFromDocs(args.compact.humanCritiques)
+      : mapHumanCritiques(args.events),
     revisedIdeas,
     finalRankings,
     failedModels: uniqueModelIds(
@@ -431,12 +524,15 @@ export function runDocsToBenchmarkRun(args: {
         .map((participant) => participant.modelId),
     ),
     modelStates,
-    failures: deriveFailures(args.events),
+    failures: args.compact?.failures.length
+      ? mapFailuresFromDocs(args.compact.failures)
+      : deriveFailures(args.events),
     checkpoint: deriveCheckpoint(args.run, args.participants),
     cancellation: {
       requested: args.run.cancellationRequested,
       requestedAt: args.run.cancellationRequested ? toIso(args.run.updatedAt) : undefined,
       reason:
+        history.findLast((event) => event.scope === "run" && event.action === "cancel")?.reason ??
         args.events.findLast((event) => event.kind === "run_canceled")?.message ??
         (args.run.cancellationRequested ? "Canceled by user" : undefined),
     },
@@ -445,8 +541,10 @@ export function runDocsToBenchmarkRun(args: {
       status: "closed",
       failureCount: 0,
     },
-    web: mapWebState(args.events),
-    reasoning: mapReasoningState(args.events),
+    web: args.compact?.sources.length ? mapWebStateFromSources(args.compact.sources) : mapWebState(args.events),
+    reasoning: args.compact?.reasoningSummaries.length
+      ? mapReasoningStateFromSummaries(args.compact.reasoningSummaries)
+      : mapReasoningState(args.events),
     metadata: {
       participantCount: args.run.participantCount,
       minimumSuccessfulModels: args.run.minimumSuccessfulModels,

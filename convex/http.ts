@@ -70,4 +70,126 @@ http.route({
   }),
 });
 
+http.route({
+  path: "/api/migrations/compact-backfill",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      requireMigrationSecret(request);
+      const body = await request.json().catch(() => ({}));
+      const result = await ctx.runMutation(internal.compactMigrations.backfillCompactRunEventsInternal, {
+        cursor: body.cursor ?? null,
+        batchSize: body.batchSize,
+        dryRun: body.dryRun,
+      });
+      return Response.json(result);
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Compact backfill failed" },
+        { status: 400 },
+      );
+    }
+  }),
+});
+
+http.route({
+  path: "/api/migrations/compact-verify",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      requireMigrationSecret(request);
+      const body = await request.json().catch(() => ({}));
+      const result = await ctx.runQuery(internal.compactMigrations.verifyCompactRunDataBatchInternal, {
+        cursor: body.cursor ?? null,
+        batchSize: body.batchSize,
+      });
+      return Response.json(result);
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Compact verification failed" },
+        { status: 400 },
+      );
+    }
+  }),
+});
+
+http.route({
+  path: "/api/migrations/compact-cleanup",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      requireMigrationSecret(request);
+      const body = await request.json().catch(() => ({}));
+      const operation = String(body.operation ?? "");
+      let result: unknown;
+
+      if (operation === "delete-terminal-run-events") {
+        result = await ctx.runMutation(internal.compactMigrations.deleteVerifiedTerminalRunEventsBatchInternal, {
+          status: body.status,
+          cursor: body.cursor ?? null,
+          batchSize: body.batchSize,
+          dryRun: body.dryRun,
+        });
+      } else if (operation === "cleanup-terminal-stage-states") {
+        result = await ctx.runMutation(internal.compactMigrations.cleanupTerminalStageStatesInternal, {
+          status: body.status,
+          cursor: body.cursor ?? null,
+          batchSize: body.batchSize,
+          dryRun: body.dryRun,
+        });
+      } else if (operation === "cleanup-raw-artifacts") {
+        result = await ctx.runMutation(internal.compactMigrations.cleanupRawArtifactsForTerminalRunsInternal, {
+          artifactType: body.artifactType,
+          cursor: body.cursor ?? null,
+          olderThan: body.olderThan,
+          batchSize: body.batchSize,
+          dryRun: body.dryRun,
+        });
+      } else if (operation === "cleanup-generated-exports") {
+        result = await ctx.runMutation(internal.compactMigrations.cleanupGeneratedExportsInternal, {
+          olderThan: body.olderThan,
+          batchSize: body.batchSize,
+          dryRun: body.dryRun,
+        });
+      } else if (operation === "cleanup-terminal-jobs") {
+        result = await ctx.runMutation(internal.compactMigrations.cleanupTerminalJobsInternal, {
+          status: body.status,
+          olderThan: body.olderThan,
+          batchSize: body.batchSize,
+          dryRun: body.dryRun,
+        });
+      } else if (operation === "cleanup-audit-logs") {
+        result = await ctx.runMutation(internal.compactMigrations.cleanupOldAuditLogsInternal, {
+          olderThan: body.olderThan,
+          batchSize: body.batchSize,
+          dryRun: body.dryRun,
+        });
+      } else if (operation === "cleanup-rate-limits") {
+        result = await ctx.runMutation(internal.compactMigrations.cleanupStaleRateLimitBucketsInternal, {
+          olderThan: body.olderThan,
+          batchSize: body.batchSize,
+          dryRun: body.dryRun,
+        });
+      } else if (operation === "cleanup-auth-state") {
+        result = await ctx.runMutation(internal.compactMigrations.cleanupExpiredAuthStateInternal, {
+          now: body.now,
+          staleVerifierCreatedBefore: body.staleVerifierCreatedBefore,
+          authRateLimitOlderThan: body.authRateLimitOlderThan,
+          batchSize: body.batchSize,
+          dryRun: body.dryRun,
+        });
+      } else {
+        return Response.json({ error: "Unsupported cleanup operation" }, { status: 400 });
+      }
+
+      return Response.json(result);
+    } catch (error) {
+      return Response.json(
+        { error: error instanceof Error ? error.message : "Compact cleanup failed" },
+        { status: 400 },
+      );
+    }
+  }),
+});
+
 export default http;

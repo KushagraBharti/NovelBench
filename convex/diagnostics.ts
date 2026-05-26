@@ -20,7 +20,7 @@ export const getProjectDiagnostics = query({
       throw new ConvexError("Project not found");
     }
 
-    const [recentRuns, recentJobs, budgets, recentAuditLogs] = await Promise.all([
+    const [recentRuns, recentJobs, budgets] = await Promise.all([
       ctx.db
         .query("runs")
         .withIndex("by_project_and_created_at", (q) => q.eq("projectId", projectId))
@@ -37,11 +37,6 @@ export const getProjectDiagnostics = query({
           q.eq("organizationId", project.organizationId).eq("projectId", projectId),
         )
         .collect(),
-      ctx.db
-        .query("auditLogs")
-        .withIndex("by_actor_and_created_at", (q) => q.eq("actorUserId", user._id))
-        .order("desc")
-        .take(20),
     ]);
 
     const benchmarkJobs = await ctx.db
@@ -58,17 +53,6 @@ export const getProjectDiagnostics = query({
     ];
     const recentProjectJobs = [...projectJobs]
       .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 20);
-
-    const attempts = (
-      await Promise.all(
-        recentProjectJobs.map((job) =>
-          ctx.db.query("jobAttempts").withIndex("by_job", (q) => q.eq("jobId", job._id)).collect(),
-        ),
-      )
-    )
-      .flat()
-      .sort((a, b) => b.startedAt - a.startedAt)
       .slice(0, 20);
 
     const usageDaily = [];
@@ -123,16 +107,6 @@ export const getProjectDiagnostics = query({
       ]
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 20),
-      recentJobAttempts: attempts.map((attempt) => ({
-        id: attempt._id,
-        jobId: attempt.jobId,
-        attemptNumber: attempt.attemptNumber,
-        status: attempt.status,
-        startedAt: attempt.startedAt,
-        completedAt: attempt.completedAt,
-        durationMs: attempt.durationMs,
-        error: attempt.error,
-      })),
       budgets: budgets.map((budget) => ({
         period: budget.period,
         periodKey: budget.periodKey,
@@ -144,17 +118,6 @@ export const getProjectDiagnostics = query({
         runCount: entry.runCount,
         settledCostUsd: entry.settledCostUsd,
       })),
-      recentAuditLogs: recentAuditLogs
-        .filter((entry) => entry.projectId === projectId || entry.organizationId === project.organizationId)
-        .slice(0, 20)
-        .map((entry) => ({
-          id: entry._id,
-          action: entry.action,
-          resourceType: entry.resourceType,
-          resourceId: entry.resourceId,
-          createdAt: entry.createdAt,
-          metadata: entry.metadata,
-        })),
     };
   },
 });

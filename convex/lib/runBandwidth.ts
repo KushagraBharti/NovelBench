@@ -5,6 +5,11 @@ export type LiveActivityCursor = {
   eventId?: string;
 };
 
+type EventCursorFields = {
+  _id: unknown;
+  createdAt: number;
+};
+
 function isCountedCompleteStatus(status: Doc<"runParticipants">["status"]) {
   return status === "complete" ? 1 : 0;
 }
@@ -24,7 +29,7 @@ export function participantCounterDeltas(
 }
 
 function isLiveEventAfterCursor(
-  event: Pick<Doc<"runEvents">, "_id" | "createdAt">,
+  event: EventCursorFields,
   cursor: LiveActivityCursor,
 ) {
   if (event.createdAt > cursor.createdAt) {
@@ -39,7 +44,7 @@ function isLiveEventAfterCursor(
   return String(event._id).localeCompare(cursor.eventId) > 0;
 }
 
-function filterLiveActivityEventList<T extends Pick<Doc<"runEvents">, "_id" | "createdAt">>(
+function filterLiveActivityEventList<T extends EventCursorFields>(
   events: T[],
   cursor?: LiveActivityCursor | null,
 ): T[] {
@@ -58,8 +63,8 @@ function filterLiveActivityEventList<T extends Pick<Doc<"runEvents">, "_id" | "c
 }
 
 export function filterLiveActivityEventsSince(
-  events: Array<Pick<Doc<"runEvents">, "_id" | "createdAt">>,
+  events: EventCursorFields[],
   cursor?: LiveActivityCursor | null,
-): Array<Pick<Doc<"runEvents">, "_id" | "createdAt">> {
+): EventCursorFields[] {
   return filterLiveActivityEventList(events, cursor);
 }

@@ -44,6 +44,7 @@ const generateExportFileHandler = async (
       run: bundle.run,
       participants: bundle.participants,
       events: bundle.events,
+      compact: bundle.compact,
     });
 
     const exportDoc = bundle.exportDoc as {

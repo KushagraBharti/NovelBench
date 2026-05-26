@@ -57,6 +57,8 @@ const checkpointStage = v.union(
   v.literal("complete"),
 );
 
+const webEnabledStage = v.union(v.literal("generate"), v.literal("revise"));
+
 const modelExecutionStatus = v.union(
   v.literal("queued"),
   v.literal("running"),
@@ -66,6 +68,110 @@ const modelExecutionStatus = v.union(
   v.literal("failed"),
   v.literal("canceled"),
   v.literal("skipped"),
+);
+
+const searchWebArgs = v.object({
+  query: v.string(),
+  includeDomains: v.optional(v.array(v.string())),
+  excludeDomains: v.optional(v.array(v.string())),
+  freshnessDays: v.optional(v.number()),
+  categoryHint: v.optional(
+    v.union(
+      v.literal("general"),
+      v.literal("news"),
+      v.literal("research"),
+      v.literal("company"),
+      v.literal("financial"),
+    ),
+  ),
+});
+
+const searchWebResultItem = v.object({
+  id: v.string(),
+  title: v.string(),
+  url: v.string(),
+  domain: v.string(),
+  publishedDate: v.optional(v.string()),
+  snippet: v.optional(v.string()),
+  highlights: v.optional(v.array(v.string())),
+  score: v.optional(v.number()),
+  contentPreview: v.string(),
+  truncated: v.boolean(),
+});
+
+const retrievedSourceRecord = v.object({
+  id: v.string(),
+  stage: webEnabledStage,
+  modelId: v.string(),
+  query: v.string(),
+  url: v.string(),
+  title: v.optional(v.string()),
+  domain: v.optional(v.string()),
+  publishedDate: v.optional(v.string()),
+  snippet: v.optional(v.string()),
+  highlights: v.optional(v.array(v.string())),
+  contentPreview: v.string(),
+  truncated: v.boolean(),
+  retrievedAt: v.string(),
+});
+
+const toolCallRecord = v.object({
+  id: v.string(),
+  stage: webEnabledStage,
+  modelId: v.string(),
+  toolName: v.literal("search_web"),
+  startedAt: v.string(),
+  completedAt: v.optional(v.string()),
+  latencyMs: v.optional(v.number()),
+  args: searchWebArgs,
+  resultSummary: v.optional(
+    v.object({
+      query: v.string(),
+      resultCount: v.number(),
+      urls: v.array(v.string()),
+    }),
+  ),
+  resultPayload: v.optional(
+    v.object({
+      query: v.string(),
+      results: v.array(searchWebResultItem),
+    }),
+  ),
+  turn: v.number(),
+  error: v.optional(v.string()),
+});
+
+const webUsageSummary = v.object({
+  stage: webEnabledStage,
+  modelId: v.string(),
+  toolSupported: v.boolean(),
+  downgradedReason: v.optional(v.string()),
+  usedSearch: v.boolean(),
+  searchCalls: v.number(),
+  searchQueries: v.array(v.string()),
+  sourceCount: v.number(),
+  totalLatencyMs: v.number(),
+});
+
+const controlActionType = v.union(
+  v.literal("pause"),
+  v.literal("resume"),
+  v.literal("cancel"),
+  v.literal("restart"),
+  v.literal("retry"),
+  v.literal("proceed"),
+);
+
+const reasoningDetailType = v.union(
+  v.literal("reasoning.summary"),
+  v.literal("reasoning.encrypted"),
+  v.literal("reasoning.text"),
+);
+
+const liveActivityKind = v.union(
+  v.literal("live_token"),
+  v.literal("tool_call_activity"),
+  v.literal("reasoning_detail"),
 );
 
 const users = defineTable({
@@ -184,7 +290,9 @@ export default defineSchema({
     limit: v.number(),
     count: v.number(),
     updatedAt: v.number(),
-  }).index("by_scope_type_and_scope_id_and_bucket_key", ["scopeType", "scopeId", "bucketKey"]),
+  })
+    .index("by_scope_type_and_scope_id_and_bucket_key", ["scopeType", "scopeId", "bucketKey"])
+    .index("by_updated_at", ["updatedAt"]),
 
   usageLedger: defineTable({
     runId: v.optional(v.id("runs")),
@@ -212,7 +320,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_actor_and_created_at", ["actorUserId", "createdAt"])
-    .index("by_resource", ["resourceType", "resourceId"]),
+    .index("by_resource", ["resourceType", "resourceId"])
+    .index("by_created_at", ["createdAt"]),
 
   runs: defineTable({
     legacyRunId: v.optional(v.string()),
@@ -317,6 +426,100 @@ export default defineSchema({
     .index("by_run_kind_and_created_at", ["runId", "kind", "createdAt"])
     .index("by_run_stage_kind_and_created_at", ["runId", "stage", "kind", "createdAt"]),
 
+  runHumanCritiques: defineTable({
+    runId: v.id("runs"),
+    targetModelId: v.string(),
+    critiqueId: v.string(),
+    ideaLabel: v.string(),
+    strengths: v.string(),
+    weaknesses: v.string(),
+    suggestions: v.string(),
+    score: v.number(),
+    authorLabel: v.string(),
+    createdAt: v.number(),
+    sourceEventId: v.optional(v.string()),
+    sourceIndex: v.optional(v.number()),
+  })
+    .index("by_run_and_created_at", ["runId", "createdAt"])
+    .index("by_run_and_target_model_id", ["runId", "targetModelId"])
+    .index("by_source_event_id_and_source_index", ["sourceEventId", "sourceIndex"]),
+
+  runSources: defineTable({
+    runId: v.id("runs"),
+    stage: webEnabledStage,
+    participantModelId: v.string(),
+    toolCalls: v.array(toolCallRecord),
+    retrievedSources: v.array(retrievedSourceRecord),
+    usage: webUsageSummary,
+    createdAt: v.number(),
+    sourceEventId: v.optional(v.string()),
+  })
+    .index("by_run_and_created_at", ["runId", "createdAt"])
+    .index("by_run_stage_and_participant_model_id", ["runId", "stage", "participantModelId"])
+    .index("by_source_event_id", ["sourceEventId"]),
+
+  runFailures: defineTable({
+    runId: v.id("runs"),
+    stage: checkpointStage,
+    participantModelId: v.optional(v.string()),
+    message: v.string(),
+    retryable: v.boolean(),
+    createdAt: v.number(),
+    sourceEventId: v.optional(v.string()),
+  })
+    .index("by_run_and_created_at", ["runId", "createdAt"])
+    .index("by_run_and_participant_model_id", ["runId", "participantModelId"])
+    .index("by_source_event_id", ["sourceEventId"]),
+
+  runControlEvents: defineTable({
+    runId: v.id("runs"),
+    stage: checkpointStage,
+    action: controlActionType,
+    scope: v.union(v.literal("run"), v.literal("model")),
+    actor: v.union(v.literal("user"), v.literal("system")),
+    actorUserId: v.optional(v.id("users")),
+    participantModelId: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    createdAt: v.number(),
+    sourceEventId: v.optional(v.string()),
+  })
+    .index("by_run_and_created_at", ["runId", "createdAt"])
+    .index("by_run_and_action_and_created_at", ["runId", "action", "createdAt"])
+    .index("by_source_event_id", ["sourceEventId"]),
+
+  runLiveEvents: defineTable({
+    runId: v.id("runs"),
+    stage: webEnabledStage,
+    kind: liveActivityKind,
+    participantModelId: v.string(),
+    payload: v.any(),
+    createdAt: v.number(),
+  })
+    .index("by_run_and_created_at", ["runId", "createdAt"])
+    .index("by_run_kind_and_created_at", ["runId", "kind", "createdAt"])
+    .index("by_run_stage_kind_and_created_at", ["runId", "stage", "kind", "createdAt"]),
+
+  runReasoningSummaries: defineTable({
+    runId: v.id("runs"),
+    stage: webEnabledStage,
+    participantModelId: v.string(),
+    detailId: v.string(),
+    detailType: reasoningDetailType,
+    turn: v.optional(v.number()),
+    format: v.optional(v.string()),
+    index: v.optional(v.number()),
+    text: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    data: v.optional(v.string()),
+    signature: v.optional(v.string()),
+    updatedAt: v.number(),
+    sourceEventId: v.optional(v.string()),
+  })
+    .index("by_run", ["runId"])
+    .index("by_run_stage_and_participant_model_id", ["runId", "stage", "participantModelId"])
+    .index("by_run_participant_model_id_and_detail_id", ["runId", "participantModelId", "detailId"])
+    .index("by_source_event_id", ["sourceEventId"]),
+
   runArtifacts: defineTable({
     runId: v.id("runs"),
     participantModelId: v.optional(v.string()),
@@ -330,7 +533,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_run", ["runId"])
-    .index("by_run_and_stage", ["runId", "stage"]),
+    .index("by_run_and_stage", ["runId", "stage"])
+    .index("by_artifact_type_and_created_at", ["artifactType", "createdAt"]),
 
   jobs: defineTable({
     organizationId: v.id("organizations"),
@@ -353,7 +557,8 @@ export default defineSchema({
   })
     .index("by_idempotency_key", ["idempotencyKey"])
     .index("by_run", ["runId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_status_and_updated_at", ["status", "updatedAt"]),
 
   jobAttempts: defineTable({
     jobId: v.id("jobs"),
@@ -455,6 +660,7 @@ export default defineSchema({
     .index("by_run", ["runId"])
     .index("by_requester", ["requestedByUserId"])
     .index("by_project_and_created_at", ["projectId", "createdAt"])
+    .index("by_created_at", ["createdAt"])
     .index("by_scope_type_and_created_at", ["scopeType", "createdAt"])
     .index("by_scope_type_and_scope_key_and_created_at", ["scopeType", "scopeKey", "createdAt"]),
 });

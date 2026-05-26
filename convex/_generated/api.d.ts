@@ -13,6 +13,7 @@ import type * as app from "../app.js";
 import type * as auth from "../auth.js";
 import type * as benchmarkActions from "../benchmarkActions.js";
 import type * as benchmarkWorkflow from "../benchmarkWorkflow.js";
+import type * as compactMigrations from "../compactMigrations.js";
 import type * as crons from "../crons.js";
 import type * as diagnostics from "../diagnostics.js";
 import type * as exportActions from "../exportActions.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   benchmarkActions: typeof benchmarkActions;
   benchmarkWorkflow: typeof benchmarkWorkflow;
+  compactMigrations: typeof compactMigrations;
   crons: typeof crons;
   diagnostics: typeof diagnostics;
   exportActions: typeof exportActions;

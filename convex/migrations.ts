@@ -1,6 +1,6 @@
 import { ConvexError, v } from "convex/values";
 import { internalMutation } from "./_generated/server";
-import type { BenchmarkRun, ControlActionRecord, CritiqueVoteResult, Ranking } from "@/types";
+import type { BenchmarkRun, CritiqueVoteResult, Ranking } from "@/types";
 import { buildPromptExcerpt, buildRunSearchText, dayKeyFromTimestamp } from "./lib/runHelpers";
 import { slugify } from "./lib/auth";
 
@@ -11,25 +11,6 @@ const LEGACY_IMPORT_ORG_SLUG = slugify("legacy-import");
 const LEGACY_IMPORT_PROJECT_NAME = "Legacy Archive";
 const LEGACY_IMPORT_PROJECT_SLUG = slugify("legacy-archive");
 const MIN_CONCURRENT_RUNS = 5;
-
-function controlActionKind(action: ControlActionRecord["action"]) {
-  switch (action) {
-    case "pause":
-      return "run_paused";
-    case "resume":
-      return "run_resumed";
-    case "cancel":
-      return "run_canceled";
-    case "restart":
-      return "run_restarted";
-    case "retry":
-      return "run_retried";
-    case "proceed":
-      return "human_critique_proceeded";
-    default:
-      return "run_resumed";
-  }
-}
 
 function inferFinalWinner(run: BenchmarkRun) {
   const stats = new Map<string, { rankTotal: number; scoreTotal: number; count: number }>();
@@ -319,53 +300,42 @@ export const importLegacyRunInternal = internalMutation({
       createdAt,
     });
 
-    await ctx.db.insert("runEvents", {
-      runId,
-      stage: run.checkpoint.stage,
-      kind: "imported_legacy_run",
-      participantModelId: undefined,
-      message: "Imported from legacy JSON storage",
-      payload: {
-        legacyRunId: args.legacyRunId,
-      },
-      createdAt,
-    });
-
-    if (humanCritiques.length > 0) {
-      await ctx.db.insert("runEvents", {
+    for (const [index, critique] of humanCritiques.entries()) {
+      await ctx.db.insert("runHumanCritiques", {
         runId,
-        stage: "human_critique",
-        kind: "human_critique_submitted",
-        participantModelId: undefined,
-        message: `Imported ${humanCritiques.length} human critiques`,
-        payload: {
-          critiques: humanCritiques,
-        },
-        createdAt: updatedAt,
+        targetModelId: critique.targetModelId,
+        critiqueId: critique.id || `legacy:${args.legacyRunId}:human:${index}`,
+        ideaLabel: critique.ideaLabel,
+        strengths: critique.strengths,
+        weaknesses: critique.weaknesses,
+        suggestions: critique.suggestions,
+        score: critique.score,
+        authorLabel: critique.authorLabel,
+        createdAt: Date.parse(critique.timestamp) || updatedAt,
+        sourceIndex: index,
       });
     }
 
     for (const failure of failures) {
-      await ctx.db.insert("runEvents", {
+      await ctx.db.insert("runFailures", {
         runId,
         stage: failure.stage,
-        kind: failure.modelId ? "model_failed" : "run_failed",
         participantModelId: failure.modelId,
         message: failure.message,
-        payload: {
-          retryable: failure.retryable,
-        },
+        retryable: failure.retryable,
         createdAt: Date.parse(failure.timestamp) || updatedAt,
       });
     }
 
     for (const event of controlHistory) {
-      await ctx.db.insert("runEvents", {
+      await ctx.db.insert("runControlEvents", {
         runId,
         stage: event.stage,
-        kind: controlActionKind(event.action),
+        action: event.action,
+        scope: event.scope,
+        actor: event.actor,
         participantModelId: event.modelId,
-        message: event.reason ?? `${event.action} imported from legacy history`,
+        reason: event.reason ?? `${event.action} imported from legacy history`,
         createdAt: Date.parse(event.timestamp) || updatedAt,
       });
     }

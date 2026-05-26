@@ -554,13 +554,59 @@ export const getExportBundleInternal = internalQuery({
         throw new ConvexError("Run not found");
       }
 
-      const [participants, events] = await Promise.all([
+      const [participants, humanCritiques, sources, failures, controls, reasoningSummaries] = await Promise.all([
         ctx.db.query("runParticipants").withIndex("by_run", (q) => q.eq("runId", run._id)).collect(),
         ctx.db
-          .query("runEvents")
+          .query("runHumanCritiques")
           .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
           .collect(),
+        ctx.db
+          .query("runSources")
+          .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
+          .collect(),
+        ctx.db
+          .query("runFailures")
+          .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
+          .collect(),
+        ctx.db
+          .query("runControlEvents")
+          .withIndex("by_run_and_created_at", (q) => q.eq("runId", run._id))
+          .collect(),
+        ctx.db
+          .query("runReasoningSummaries")
+          .withIndex("by_run", (q) => q.eq("runId", run._id))
+          .collect(),
       ]);
+      const fallbackKinds = new Set<string>();
+      if (humanCritiques.length === 0) fallbackKinds.add("human_critique_submitted");
+      if (sources.length === 0) fallbackKinds.add("web_stage_trace");
+      if (failures.length === 0) {
+        fallbackKinds.add("model_failed");
+        fallbackKinds.add("run_failed");
+      }
+      if (controls.length === 0) {
+        for (const kind of [
+          "run_paused",
+          "run_resumed",
+          "run_canceled",
+          "run_restarted",
+          "run_retried",
+          "human_critique_proceeded",
+        ]) {
+          fallbackKinds.add(kind);
+        }
+      }
+      if (reasoningSummaries.length === 0) fallbackKinds.add("reasoning_detail");
+      const events = (
+        await Promise.all(
+          Array.from(fallbackKinds).map((kind) =>
+            ctx.db
+              .query("runEvents")
+              .withIndex("by_run_kind_and_created_at", (q) => q.eq("runId", run._id).eq("kind", kind))
+              .collect(),
+          ),
+        )
+      ).flat();
 
       return {
         scopeType: "run",
@@ -568,6 +614,13 @@ export const getExportBundleInternal = internalQuery({
         run,
         participants,
         events,
+        compact: {
+          humanCritiques,
+          sources,
+          failures,
+          controls,
+          reasoningSummaries,
+        },
       };
     }
 
