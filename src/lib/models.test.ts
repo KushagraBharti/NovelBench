@@ -3,6 +3,7 @@ import {
   MODEL_SELECTION_LIMITS,
   createBringYourOwnModel,
   getDefaultModels,
+  getFullModelCatalog,
   getModelCatalog,
   getModelById,
   getModelIdentityById,
@@ -16,6 +17,8 @@ describe("model catalog", () => {
     expect(defaults.length).toBeGreaterThanOrEqual(MODEL_SELECTION_LIMITS.min);
     expect(defaults.length).toBeLessThanOrEqual(MODEL_SELECTION_LIMITS.max);
     expect(defaults.every((model) => model.active && model.defaultEnabled)).toBe(true);
+    expect(defaults.some((model) => model.id === "claude-opus-4.8")).toBe(true);
+    expect(defaults.some((model) => model.id === "kimi-k2.7-code")).toBe(true);
   });
 
   it("validates OpenRouter ids and creates BYOM entries", () => {
@@ -31,16 +34,42 @@ describe("model catalog", () => {
     expect(resolveSelectedModels(["gpt-5.4"], [])[0]?.openRouterId).toBe("openai/gpt-5.4");
   });
 
+  it("replaces retired default contenders with distinct latest catalog identities", () => {
+    const activeIds = new Set(getModelCatalog().map((model) => model.id));
+    const defaultIds = new Set(getDefaultModels().map((model) => model.id));
+
+    expect(activeIds.has("claude-opus-4.8")).toBe(true);
+    expect(defaultIds.has("claude-opus-4.8")).toBe(true);
+    expect(activeIds.has("claude-opus-4.7")).toBe(false);
+    expect(defaultIds.has("claude-opus-4.7")).toBe(false);
+    expect(getModelById("claude-opus-4.7")?.openRouterId).toBe("anthropic/claude-opus-4.7");
+    expect(resolveSelectedModels(["claude-opus-4.7"], [])[0]?.active).toBe(false);
+
+    expect(activeIds.has("kimi-k2.7-code")).toBe(true);
+    expect(defaultIds.has("kimi-k2.7-code")).toBe(true);
+    expect(activeIds.has("kimi-k2.6")).toBe(false);
+    expect(defaultIds.has("kimi-k2.6")).toBe(false);
+    expect(getModelById("kimi-k2.6")?.openRouterId).toBe("moonshotai/kimi-k2.6");
+    expect(resolveSelectedModels(["kimi-k2.6"], [])[0]?.active).toBe(false);
+  });
+
+  it("keeps catalog ids unique so leaderboard scores remain separated", () => {
+    const ids = getFullModelCatalog().map((model) => model.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(getModelById("claude-opus-4.8")?.openRouterId).toBe("anthropic/claude-opus-4.8");
+    expect(getModelById("kimi-k2.7-code")?.openRouterId).toBe("moonshotai/kimi-k2.7-code");
+  });
+
   it("resolves mixed active and older selections into run participants", () => {
     const models = resolveSelectedModels(
-      ["gpt-5.5", "claude-opus-4.6", "gemini-3.1-flash", "deepseek-v3.2"],
+      ["gpt-5.5", "claude-opus-4.7", "gemini-3-flash", "kimi-k2.6"],
       []
     );
     expect(models.map((model) => model.id)).toEqual([
       "gpt-5.5",
-      "claude-opus-4.6",
-      "gemini-3.1-flash",
-      "deepseek-v3.2",
+      "claude-opus-4.7",
+      "gemini-3-flash",
+      "kimi-k2.6",
     ]);
     expect(models.map((model) => model.active)).toEqual([true, false, false, false]);
   });
